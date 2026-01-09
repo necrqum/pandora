@@ -26,26 +26,3 @@ uvicorn app.main:app --reload
 ## Documentation
 [API Docs](/docs)
 [Development Guide](docs/development.md)
-
-### 2. **.gitignore** (Wichtige Einträge)
-```gitignore
-# Python
-__pycache__/
-*.py[cod]
-.env
-.venv/
-venv/
-
-# Node
-node_modules/
-npm-debug.log*
-
-# Media & Database
-media/       # User media files
-*.db
-*.sqlite3
-
-# IDE
-.vscode/
-.idea/
-*.swp
