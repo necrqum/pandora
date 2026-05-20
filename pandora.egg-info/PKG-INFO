@@ -1,0 +1,16 @@
+Metadata-Version: 2.4
+Name: pandora
+Version: 0.1.0
+Summary: A self-hosted, fully encrypted media organizer web app.
+Author: Necrqum
+License-File: LICENSE
+Requires-Dist: fastapi
+Requires-Dist: uvicorn
+Requires-Dist: cryptography
+Requires-Dist: sqlalchemy
+Requires-Dist: pydantic
+Requires-Dist: sqlcipher3-binary
+Dynamic: author
+Dynamic: license-file
+Dynamic: requires-dist
+Dynamic: summary
