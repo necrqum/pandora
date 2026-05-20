@@ -1,0 +1,56 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Server Administration</title>
+    <link rel="stylesheet" href="/static/styles/main.css">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600&display=swap" rel="stylesheet">
+</head>
+<body>
+
+    <!-- DECOY LOGIN (Stealth Mode) -->
+    <div id="decoy-container" class="container active">
+        <div class="login-card">
+            <h1>System Administration</h1>
+            <p>Please authenticate to access the control panel.</p>
+            <input type="password" id="master-password" placeholder="Admin Key" />
+            <button id="login-btn">Authenticate</button>
+            <div id="login-error" class="error"></div>
+        </div>
+    </div>
+
+    <!-- PANDORA VAULT UI -->
+    <div id="vault-container" class="container">
+        <header>
+            <div class="logo">PANDORA'S BOX</div>
+            <button id="panic-btn" class="danger-btn" title="Double tap Esc to quick-lock">PANIC LOCK</button>
+        </header>
+        
+        <main>
+            <section class="upload-section">
+                <h2>Import Media</h2>
+                <input type="file" id="file-input" accept="video/*,image/*" />
+                <button id="upload-btn">Encrypt & Store</button>
+            </section>
+            
+            <section class="gallery-section">
+                <h2>Vault Contents</h2>
+                <div id="gallery-grid" class="grid">
+                    <!-- Files will be injected here -->
+                </div>
+            </section>
+        </main>
+        
+        <!-- Video Player Modal -->
+        <div id="player-modal" class="modal">
+            <div class="modal-content">
+                <span class="close-btn" id="close-modal">&times;</span>
+                <video id="video-player" controls autoplay></video>
+            </div>
+        </div>
+    </div>
+
+    <script src="/static/scripts/main.js"></script>
+</body>
+</html>

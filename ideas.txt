@@ -1,0 +1,13 @@
+Hey. I'd like to create a project kinda like 'https://github.com/stashapp/stash' called 'pandora'. 
+I want this app to be a safe environment - a separat space on your computer in this project - 
+like pandoras box - thats where the name comes from. In general it should be a tool to save your 
+video/picture/gif files in, categorize them, lable them - all custom by you, 
+or automatically via certain tools. The tool should be used for normal videos as well, 
+but it should be optimized for porn (like the stashapp). I'd like to have features like 
+---
+
+additions:
+- general plan should be clear (pornfiles & link stashing in an safe/private environment - therefore delocated - categorization/labeling/sorting/searching of those (automatically + custom) & streaming of those/the whole program perhabs locally + in future not just locally anymore & exports via discord/telegram as well - infuture maby even maintaining the tool/accsessing the tool via discord/telegram bot etc.)
+- implementing stuff from my project cerberus - so directly download files to pandora - with additional informations about original link - website stuff - tags etc - automatically
+
+yes, this sounds great. Dont forget id like to publish this to github as well.

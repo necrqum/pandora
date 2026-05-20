@@ -1,0 +1,24 @@
+# Environments
+venv/
+env/
+.env
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+
+# Pandora DB and Vault
+pandora.db
+.vault_salt
+files/
+
+# IDE and OS
+.vscode/
+.idea/
+.DS_Store
+
+# AI Tools
+.agents/
+.antigravitycli/
