@@ -25,6 +25,9 @@ You can run the application directly from your terminal:
 # Ensure you are in the python virtual environment
 source venv/bin/activate
 
+# you forgot
+pip install .
+
 # Run the app
 pandora
 ```
