@@ -11,3 +11,5 @@ additions:
 - implementing stuff from my project cerberus - so directly download files to pandora - with additional informations about original link - website stuff - tags etc - automatically
 
 yes, this sounds great. Dont forget id like to publish this to github as well.
+
+- Vault Storage Configuration: Ability to set/change the save location for the encrypted files (the vault) during initial setup and later in a settings tab. Media imported into the app should become the sole source of truth (original files deleted or moved) to act as a true secure safe storage.
