@@ -3,6 +3,7 @@ import pytest
 import tempfile
 from pandora.backend.security import VaultSecurity
 from pandora.backend.vault import VaultManager
+from pandora.backend.exceptions import DecryptionError
 
 def test_encryption_decryption():
     sec = VaultSecurity("test_pass")
@@ -22,7 +23,7 @@ def test_wrong_password():
     plaintext = b"Secret"
     ciphertext = sec1.encrypt(plaintext)
     
-    with pytest.raises(ValueError):
+    with pytest.raises(DecryptionError):
         sec2.decrypt(ciphertext)
 
 def test_streaming_vault():
@@ -38,7 +39,7 @@ def test_streaming_vault():
                 yield b"Chunk " + str(i).encode() + b" data"
                 
         # Store
-        file_id = vault.store_file(mock_stream())
+        file_id, size = vault.store_file(mock_stream())
         assert file_id is not None
         assert os.path.exists(vault._get_file_path(file_id))
         
@@ -80,3 +81,36 @@ def test_db_encryption():
         with pytest.raises(Exception):
             session2.execute(text("SELECT count(*) FROM sqlite_master")).fetchall()
         session2.close()
+
+def test_vault_range_streaming():
+    from pandora.backend.security import VaultSecurity
+    from pandora.backend.vault import VaultManager
+    import tempfile
+    
+    sec = VaultSecurity("range_pass")
+    
+    with tempfile.TemporaryDirectory() as tmpdir:
+        vault = VaultManager(tmpdir, sec)
+        
+        # Create a file with 10 small chunks to test multi-block seeking
+        data_chunks = [f"Data block {i:02d} ".encode() * 100 for i in range(10)]
+        def mock_stream():
+            for chunk in data_chunks:
+                yield chunk
+        
+        file_id, total_size = vault.store_file(mock_stream())
+        full_data = b"".join(data_chunks)
+        
+        # Test full range
+        reconstructed = b"".join(vault.stream_file_range(file_id, 0, total_size - 1))
+        assert reconstructed == full_data
+        
+        # Test middle range
+        start, end = 1000, 5000
+        reconstructed = b"".join(vault.stream_file_range(file_id, start, end))
+        assert reconstructed == full_data[start:end+1]
+        
+        # Test end range
+        start, end = total_size - 500, total_size - 1
+        reconstructed = b"".join(vault.stream_file_range(file_id, start, end))
+        assert reconstructed == full_data[start:end+1]

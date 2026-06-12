@@ -10,3 +10,5 @@ requests==2.31.0
 beautifulsoup4==4.12.2
 # sqlcipher3-binary may require system dependencies depending on platform
 sqlcipher3-binary==0.5.4.post2
+Pillow==10.1.0
+opencv-python-headless==4.8.1.78

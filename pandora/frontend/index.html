@@ -3,19 +3,31 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Server Administration</title>
-    <link rel="stylesheet" href="/static/styles/main.css">
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600&display=swap" rel="stylesheet">
+    <title>Pandora Vault</title>
+    <link rel="stylesheet" href="/static/styles/main.css?v=5">
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&display=swap" rel="stylesheet">
 </head>
 <body>
 
+    <!-- SETUP FLOW (First Run) -->
+    <div id="setup-container" class="container">
+        <div class="login-container">
+            <h1 class="login-title">Vault Setup</h1>
+            <p class="login-subtitle">Initialize your secure media environment.</p>
+            <input type="text" id="setup-vault-dir" placeholder="Storage Path (Optional, defaults to ~/.pandora)" />
+            <input type="password" id="setup-password" placeholder="Set Master Password" />
+            <button id="setup-btn" class="btn">Initialize Vault</button>
+            <div id="setup-error" class="error"></div>
+        </div>
+    </div>
+
     <!-- DECOY LOGIN (Stealth Mode) -->
     <div id="decoy-container" class="container active">
-        <div class="login-card">
-            <h1>System Administration</h1>
-            <p>Please authenticate to access the control panel.</p>
+        <div class="login-container">
+            <h1 class="login-title">System Administration</h1>
+            <p class="login-subtitle">Please authenticate to access the control panel.</p>
             <input type="password" id="master-password" placeholder="Admin Key" />
-            <button id="login-btn">Authenticate</button>
+            <button id="login-btn" class="btn">Authenticate</button>
             <div id="login-error" class="error"></div>
         </div>
     </div>
@@ -23,34 +35,158 @@
     <!-- PANDORA VAULT UI -->
     <div id="vault-container" class="container">
         <header>
-            <div class="logo">PANDORA'S BOX</div>
-            <button id="panic-btn" class="danger-btn" title="Double tap Esc to quick-lock">PANIC LOCK</button>
+            <div style="display: flex; align-items: center; gap: 1rem;">
+                <button id="sidebar-toggle" class="btn btn-outline btn-small mobile-only">☰</button>
+                <div class="logo">PANDORA'S BOX</div>
+            </div>
+            <div style="display: flex; gap: 0.5rem;">
+                <button id="settings-btn" class="btn btn-outline btn-small">⚙️</button>
+                <button id="panic-btn" class="btn btn-danger btn-small" title="Double tap Esc to quick-lock">PANIC LOCK</button>
+            </div>
         </header>
         
-        <main>
-            <section class="upload-section">
-                <h2>Import Media</h2>
-                <input type="file" id="file-input" accept="video/*,image/*" />
-                <button id="upload-btn">Encrypt & Store</button>
-            </section>
-            
-            <section class="gallery-section">
-                <h2>Vault Contents</h2>
+        <div class="vault-layout">
+            <aside class="sidebar" id="sidebar">
+                <div class="sidebar-section">
+                    <h3>Import Media</h3>
+                    <div class="upload-controls">
+                        <div class="file-input-wrapper">
+                            <button class="btn btn-outline btn-small w-full">Choose Files</button>
+                            <input type="file" id="file-input" accept="video/*,image/*" multiple />
+                        </div>
+                        <div id="file-name-display" class="file-name-tip"></div>
+                        <button id="upload-btn" class="btn btn-small w-full">Encrypt & Store</button>
+                    </div>
+                </div>
+
+                <div class="sidebar-divider"></div>
+
+                <div class="sidebar-section">
+                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.25rem;">
+                        <h3 style="margin-bottom: 0;">Tags</h3>
+                        <button id="open-tag-manager" class="btn btn-outline btn-xs" title="Manage All Tags">Edit</button>
+                    </div>
+                    <div id="sidebar-tags-list" class="sidebar-tag-cloud">
+                        <!-- Tags will be injected here -->
+                    </div>
+                </div>
+
+                <div class="sidebar-divider"></div>
+
+                <div class="sidebar-section flex-1 overflow-hidden flex flex-col">
+                    <h3>Categories</h3>
+                    <ul id="category-list">
+                        <li data-id="all" class="active">All Files</li>
+                        <li data-id="uncategorized">Uncategorized</li>
+                    </ul>
+                    <div class="add-category">
+                        <input type="text" id="new-category-name" placeholder="New Category" />
+                        <button id="add-category-btn" class="btn btn-small" title="Add">+</button>
+                    </div>
+                </div>
+            </aside>
+
+            <main class="vault-main">
+                <div class="gallery-header" style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 1rem;">
+                    <div style="display: flex; align-items: center; gap: 1rem;">
+                        <h2 id="current-category-title">Vault Contents</h2>
+                        <span id="search-result-count" style="font-size: 0.85rem; opacity: 0.6; margin-top: 0.3rem;"></span>
+                        <select id="sort-select" class="search-input" style="width: auto; margin-bottom: 0;">
+                            <option value="date:desc">Date Added (Newest)</option>
+                            <option value="date:asc">Date Added (Oldest)</option>
+                            <option value="created:desc">Date Created (Newest)</option>
+                            <option value="created:asc">Date Created (Oldest)</option>
+                            <option value="name:asc">Name (A-Z)</option>
+                            <option value="name:desc">Name (Z-A)</option>
+                            <option value="size:desc">Size (Large First)</option>
+                            <option value="duration:desc">Duration (Long First)</option>
+                        </select>
+                    </div>
+                    <div class="search-container">
+                        <input type="text" id="search-input" placeholder="Search (e.g. tag:funny -name:IMG)..." class="search-input" />
+                    </div>
+                </div>
                 <div id="gallery-grid" class="grid">
                     <!-- Files will be injected here -->
                 </div>
-            </section>
-        </main>
+                <div id="pagination-controls" class="pagination" style="display: flex; justify-content: center; gap: 0.5rem; padding: 2rem;">
+                    <!-- Pagination buttons will be injected here -->
+                </div>
+            </main>
+        </div>
+
+        <!-- Multi-Select Action Bar -->
+        <div id="selection-bar" class="selection-bar">
+            <div class="selection-count"><span id="selected-count">0</span> items selected</div>
+            <div class="selection-actions">
+                <button id="bulk-tag-btn" class="btn btn-outline btn-small">Add Tag</button>
+                <button id="bulk-untag-btn" class="btn btn-outline btn-small">Remove Tag</button>
+                <button id="bulk-cat-btn" class="btn btn-outline btn-small">Set Category</button>
+                <button id="bulk-delete-btn" class="btn btn-danger btn-small">Delete</button>
+                <button id="clear-selection-btn" class="btn btn-outline btn-small">Cancel</button>
+            </div>
+        </div>
         
-        <!-- Video Player Modal -->
+        <!-- Settings Modal -->
+        <div id="settings-modal" class="modal">
+            <div class="login-container" style="max-width: 500px; position: relative;">
+                <span class="close-btn" id="close-settings" style="top: 10px; right: 20px;">&times;</span>
+                <h2 class="login-title" style="font-size: 1.5rem; margin-bottom: 1.5rem;">Vault Settings</h2>
+                
+                <div style="text-align: left; margin-bottom: 2rem;">
+                    <h3 style="font-size: 1rem; color: var(--text-secondary); margin-bottom: 1rem;">Server Control</h3>
+                    <div style="display: flex; gap: 1rem;">
+                        <button id="restart-server-btn" class="btn btn-outline btn-small" style="flex: 1;">Restart Server</button>
+                        <button id="shutdown-server-btn" class="btn btn-danger btn-small" style="flex: 1;">Shutdown Server</button>
+                    </div>
+                </div>
+
+                <div style="text-align: left;">
+                    <h3 style="font-size: 1rem; color: var(--text-secondary); margin-bottom: 1rem;">Change Password</h3>
+                    <p style="font-size: 0.8rem; color: var(--text-secondary); margin-bottom: 1rem; font-style: italic;">
+                        Note: Full re-encryption is coming soon.
+                    </p>
+                    <input type="password" id="old-password" placeholder="Current Password" />
+                    <input type="password" id="new-password" placeholder="New Password" />
+                    <button id="change-pass-btn" class="btn btn-small" disabled>Update Password</button>
+                </div>
+            </div>
+        </div>
+        
+        <!-- Tag Manager Modal -->
+        <div id="tag-manager-modal" class="modal">
+            <div class="login-container" style="max-width: 600px; position: relative;">
+                <span class="close-btn" id="close-tag-manager" style="top: 10px; right: 20px;">&times;</span>
+                <h2 class="login-title" style="font-size: 1.5rem; margin-bottom: 1.5rem;">Tag Manager</h2>
+                
+                <div class="tag-manager-layout">
+                    <div id="tag-manager-list" class="tag-manager-list">
+                        <!-- Tags with rename/delete buttons -->
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Media Player Modal -->
         <div id="player-modal" class="modal">
             <div class="modal-content">
                 <span class="close-btn" id="close-modal">&times;</span>
-                <video id="video-player" controls autoplay></video>
+                <video id="video-player" controls autoplay style="display: none;"></video>
+                <img id="image-viewer" style="display: none; max-width: 100%; height: auto; margin: auto; display: block;" />
+            </div>
+        </div>
+
+        <!-- Rename Modal (Generic) -->
+        <div id="rename-modal" class="modal">
+            <div class="login-container" style="max-width: 400px; position: relative;">
+                <span class="close-btn" id="close-rename">&times;</span>
+                <h2 id="rename-modal-title" style="font-size: 1.25rem; margin-bottom: 1.5rem;">Rename</h2>
+                <input type="text" id="rename-input" placeholder="New name" />
+                <button id="rename-confirm-btn" class="btn btn-small w-full">Apply Change</button>
             </div>
         </div>
     </div>
 
-    <script src="/static/scripts/main.js"></script>
+    <script src="/static/scripts/main.js?v=5"></script>
 </body>
 </html>
