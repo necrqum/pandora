@@ -117,16 +117,29 @@ class AdvancedLoggingMiddleware:
                 state.logger.error(f"{client_ip} - \"{method} {path}\" 500 ({process_time:.3f}s) - Error: {str(e)}")
             raise e
 
-app.add_middleware(AdvancedLoggingMiddleware)
+# --- Utilities ---
+def resource_path(relative_path):
+    """ Get absolute path to resource, works for dev and for PyInstaller """
+    try:
+        # PyInstaller creates a temp folder and stores path in _MEIPASS
+        base_path = sys._MEIPASS
+    except Exception:
+        base_path = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+    return os.path.join(base_path, relative_path)
 
-frontend_dir = os.path.join(os.path.dirname(__file__), "..", "frontend")
+frontend_dir = resource_path("frontend")
 app.mount("/static", StaticFiles(directory=frontend_dir), name="static")
 
 @app.get("/")
 def serve_index():
     # If no salt file exists, we need to show the setup screen
     is_setup = not os.path.exists(paths["salt"])
-    with open(os.path.join(frontend_dir, "index.html"), "r") as f:
+    index_path = os.path.join(frontend_dir, "index.html")
+    if not os.path.exists(index_path):
+        # Fallback for different build structures
+        index_path = resource_path("pandora/frontend/index.html")
+        
+    with open(index_path, "r") as f:
         content = f.read()
         if is_setup:
             content = content.replace('id="decoy-container" class="container active"', 'id="decoy-container" class="container"')
@@ -698,7 +711,7 @@ def list_files(
                     "size": f.size,
                     "added_at": f.added_at.isoformat() if f.added_at else None,
                     "created_at": f.metadata_created_at.isoformat() if f.metadata_created_at else None,
-                    "tags": [t.name for t in f.tags]
+                    "tags": [t.name for t in f.tags if t]
                 } for f in files
             ],
             "total": total,
@@ -725,7 +738,7 @@ def update_file_tags(file_id: str, req: UpdateTagsRequest):
             new_tags.append(tag)
         
         db_file.tags = new_tags
-        return {"status": "ok", "tags": [t.name for t in db_file.tags]}
+        return {"status": "ok", "tags": [t.name for t in db_file.tags if t]}
 
 @app.put("/api/tags/{old_name}", dependencies=[Depends(require_unlocked)])
 def rename_tag(old_name: str, req: TagCreate):
@@ -788,7 +801,7 @@ def list_tags():
     from .database import Tag as DBTag
     with state.db.session_scope() as session:
         tags = session.query(DBTag).all()
-        return [t.name for t in tags]
+        return [t.name for t in tags if t]
 
 @app.get("/api/categories", dependencies=[Depends(require_unlocked)])
 def list_categories():
@@ -808,7 +821,7 @@ def list_categories():
         return {
             "categories": [
                 {"id": c.id, "name": c.name, "count": count_map.get(c.id, 0)} 
-                for c in categories
+                for c in categories if c
             ],
             "total": total_files,
             "uncategorized": uncategorized_count

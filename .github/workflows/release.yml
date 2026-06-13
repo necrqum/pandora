@@ -51,7 +51,8 @@ jobs:
           --hidden-import=beautifulsoup4 \
           --hidden-import=PIL \
           --hidden-import=cv2 \
-          --add-data "pandora/frontend:pandora/frontend" \
+          --hidden-import=yt_dlp \
+          --add-data "pandora/frontend:frontend" \
           pandora/__main__.py
         echo "Build complete for Linux"
         ls -l dist/
@@ -71,7 +72,8 @@ jobs:
           --hidden-import=beautifulsoup4 \
           --hidden-import=PIL \
           --hidden-import=cv2 \
-          --add-data "pandora/frontend;pandora/frontend" \
+          --hidden-import=yt_dlp \
+          --add-data "pandora/frontend;frontend" \
           pandora/__main__.py
         echo "Build complete for Windows"
         dir dist\
