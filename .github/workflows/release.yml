@@ -39,14 +39,40 @@ jobs:
     - name: Build with PyInstaller (Linux)
       if: runner.os == 'Linux'
       run: |
-        pyinstaller --onefile --name pandora-linux --hidden-import=uvicorn --hidden-import=fastapi --hidden-import=sqlcipher3-binary pandora/backend/main.py
+        pyinstaller --onefile --name pandora-linux \
+          --hidden-import=uvicorn \
+          --hidden-import=fastapi \
+          --hidden-import=sqlcipher3-binary \
+          --hidden-import=sqlalchemy \
+          --hidden-import=pydantic \
+          --hidden-import=cryptography \
+          --hidden-import=jinja2 \
+          --hidden-import=requests \
+          --hidden-import=beautifulsoup4 \
+          --hidden-import=PIL \
+          --hidden-import=cv2 \
+          --add-data "pandora/frontend:pandora/frontend" \
+          pandora/__main__.py
         echo "Build complete for Linux"
         ls -l dist/
 
     - name: Build with PyInstaller (Windows)
       if: runner.os == 'Windows'
       run: |
-        pyinstaller --onefile --name pandora --hidden-import=uvicorn --hidden-import=fastapi --hidden-import=sqlcipher3-binary pandora/backend/main.py
+        pyinstaller --onefile --name pandora \
+          --hidden-import=uvicorn \
+          --hidden-import=fastapi \
+          --hidden-import=sqlcipher3-binary \
+          --hidden-import=sqlalchemy \
+          --hidden-import=pydantic \
+          --hidden-import=cryptography \
+          --hidden-import=jinja2 \
+          --hidden-import=requests \
+          --hidden-import=beautifulsoup4 \
+          --hidden-import=PIL \
+          --hidden-import=cv2 \
+          --add-data "pandora/frontend;pandora/frontend" \
+          pandora/__main__.py
         echo "Build complete for Windows"
         dir dist\
 
