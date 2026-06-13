@@ -72,10 +72,16 @@ If you want to modify the code or prefer running it via Python:
 If you installed Pandora using Git, you can update it with these simple commands:
 
 ```bash
-# Pull the latest code
+# 1. Pull the latest code
 git pull origin master
 
-# Re-install in case there are new dependencies
+# 2. Activate your virtual environment
+# On Linux/macOS:
+source venv/bin/activate
+# On Windows:
+venv\Scripts\activate
+
+# 3. Re-install in case there are new dependencies
 pip install -r requirements.txt
 pip install -e .
 ```
