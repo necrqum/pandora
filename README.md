@@ -11,12 +11,14 @@ Pandora acts as a "Pandora's Box" — a completely separate, safe environment fo
 ## ✨ Features
 
 - **Zero-Knowledge Architecture**: Files are encrypted using AES-256-GCM and SQLite data is protected by SQLCipher. The encryption key is derived from your master password and never stored locally.
+- **Split-Storage Architecture**: A professionalized storage system that separates "Application Metadata" (DB, Keys, Logs) from "Mass Storage" (Encrypted Media). This allows you to store your heavy video files on an **external disk** while keeping the app configuration on your main drive.
+- **Cerberus Universal Downloader**: Directly download and encrypt media from **1,000+ sites** (YouTube, Erome, xhamster, etc.) powered by `yt-dlp`.
+- **Zero-Footprint URL Import**: Downloaded content is streamed directly from the web into the encrypted vault without ever touching your disk in an unencrypted state.
+- **Quick-Tagging Import Modal**: A streamlined UI flow that allows you to edit titles, select categories, and apply tags *before* the file is encrypted and stored.
 - **Privacy First**: IP addresses and personally identifiable traces are logged as cryptographic hashes, ensuring maximum operational security.
 - **Stealth Mode**: A decoy login screen protects the vault.
-- **In-Memory Streaming**: Media is never decrypted to a temporary file; it flows directly from encrypted storage to the player.
-- **Intelligent Thumbnails**: A secure backend pipeline (via `ffmpeg` and `Pillow`) instantly extracts zero-footprint thumbnails for your videos and images during upload. Temporary files are destroyed by zero-filling before deletion.
-- **Categorization & File Management**: Seamlessly categorize, rename, and permanently delete your files from a clean, modern interface. See our [Advanced Search Guide](docs/search_guide.md) for power-user tips.
-- **Modular Scrapers**: Easily plug in custom scrapers to automatically label your media.
+- **In-Memory Streaming**: Media is never decrypted to a temporary file; it flows directly from encrypted storage to the player with 4MB chunking for optimized seeking.
+- **Intelligent Thumbnails**: A secure backend pipeline instantly extracts zero-footprint thumbnails for your videos and images.
 
 ---
 

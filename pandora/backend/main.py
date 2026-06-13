@@ -292,6 +292,20 @@ def batch_delete_files(req: BatchDeleteRequest):
     return {"status": "ok", "count": len(req.file_ids)}
 
 # --- Routes ---
+@app.get("/api/setup/status")
+def get_setup_status():
+    # Check if salt exists (meaning already initialized)
+    config_dir = state.config_dir or os.path.expanduser("~/.pandora")
+    blob_dir = state.blob_dir
+    initialized = os.path.exists(os.path.join(config_dir, ".vault_salt"))
+    
+    return {
+        "initialized": initialized,
+        "suggested_config_dir": config_dir,
+        "suggested_blob_dir": blob_dir,
+        "is_env_forced": os.environ.get("PANDORA_CONFIG_DIR") is not None
+    }
+
 @app.post("/api/init")
 def init_vault(req: InitRequest, response: Response):
     global paths

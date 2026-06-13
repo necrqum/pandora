@@ -124,6 +124,40 @@ function escapeHTML(str) {
 }
 
 // --- Auth Flow ---
+async function checkSetupStatus() {
+    try {
+        const res = await fetch('/api/setup/status');
+        if (res.ok) {
+            const data = await res.json();
+            if (!data.initialized) {
+                decoyContainer.classList.remove('active');
+                setupContainer.classList.add('active');
+                
+                // Auto-fill suggested paths
+                if (data.suggested_config_dir) {
+                    setupDirInput.value = data.suggested_config_dir;
+                }
+                if (data.suggested_blob_dir) {
+                    setupBlobDirInput.value = data.suggested_blob_dir;
+                    // If mass storage is different from config, show the split fields
+                    if (data.suggested_blob_dir !== data.suggested_config_dir + '/data') {
+                        setupAdvancedToggle.checked = true;
+                        setupAdvancedFields.style.display = 'block';
+                    }
+                }
+                
+                if (data.is_env_forced) {
+                    setupDirInput.disabled = true;
+                    setupBlobDirInput.disabled = true;
+                    setupAdvancedToggle.disabled = true;
+                    setupDirInput.style.opacity = '0.6';
+                    setupBlobDirInput.style.opacity = '0.6';
+                }
+            }
+        }
+    } catch (e) { console.error('Failed to check setup status', e); }
+}
+
 async function authenticate() {
     const password = passInput.value;
     if (!password) return;
@@ -1008,3 +1042,4 @@ window.deleteFile = async (id) => {
         if (res.ok) await Promise.all([loadFiles(), loadCategories()]);
     } catch(e) {}
 };
+checkSetupStatus();
