@@ -12,7 +12,7 @@ Pandora acts as a "Pandora's Box" — a completely separate, safe environment fo
 
 - **Zero-Knowledge Architecture**: Files are encrypted using AES-256-GCM and SQLite data is protected by SQLCipher. The encryption key is derived from your master password and never stored locally.
 - **Split-Storage Architecture**: A professionalized storage system that separates "Application Metadata" (DB, Keys, Logs) from "Mass Storage" (Encrypted Media). This allows you to store your heavy video files on an **external disk** while keeping the app configuration on your main drive.
-- **Cerberus Universal Downloader**: Directly download and encrypt media from **1,000+ sites** (YouTube, Erome, xhamster, etc.) powered by `yt-dlp`.
+- **Cerberus Universal Downloader**: Directly download and encrypt media from **1,000+ sites** (YouTube, Erome, xhamster, etc.). This infrastructure is powered by our sister project [Cerberus](https://github.com/necrqum/cerberus), integrating robust `yt-dlp` capabilities directly into the vault.
 - **Zero-Footprint URL Import**: Downloaded content is streamed directly from the web into the encrypted vault without ever touching your disk in an unencrypted state.
 - **Quick-Tagging Import Modal**: A streamlined UI flow that allows you to edit titles, select categories, and apply tags *before* the file is encrypted and stored.
 - **Privacy First**: IP addresses and personally identifiable traces are logged as cryptographic hashes, ensuring maximum operational security.
