@@ -12,3 +12,4 @@ beautifulsoup4==4.12.2
 sqlcipher3-binary==0.5.4.post2
 Pillow==10.1.0
 opencv-python-headless==4.8.1.78
+yt-dlp>=2023.11.16
