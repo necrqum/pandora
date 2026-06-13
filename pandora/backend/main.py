@@ -11,6 +11,7 @@ import os
 import secrets
 import shutil
 import traceback
+import json
 from fastapi.responses import JSONResponse
 import time
 import mimetypes
@@ -29,31 +30,49 @@ class AppState:
     security: Optional[VaultSecurity] = None
     db: Optional[DatabaseManager] = None
     vault: Optional[VaultManager] = None
-    vault_dir: Optional[str] = None
+    config_dir: Optional[str] = None
+    blob_dir: Optional[str] = None
     active_sessions: set = set()
     logger: Optional[object] = None
     config_path: str = os.path.expanduser("~/.pandora_config")
 
 state = AppState()
 
-def setup_vault_paths(vault_dir: str):
-    state.vault_dir = vault_dir
-    os.makedirs(state.vault_dir, exist_ok=True)
-    state.logger = setup_logging(state.vault_dir)
+def setup_vault_paths(config_dir: str, blob_dir: Optional[str] = None):
+    state.config_dir = os.path.abspath(config_dir)
+    state.blob_dir = os.path.abspath(blob_dir) if blob_dir else os.path.join(state.config_dir, "data")
+    
+    os.makedirs(state.config_dir, exist_ok=True)
+    os.makedirs(state.blob_dir, exist_ok=True)
+    
+    state.logger = setup_logging(state.config_dir)
     return {
-        "salt": os.path.join(state.vault_dir, ".vault_salt"),
-        "db": os.path.join(state.vault_dir, "pandora.db"),
-        "files": os.path.join(state.vault_dir, "files")
+        "salt": os.path.join(state.config_dir, ".vault_salt"),
+        "db": os.path.join(state.config_dir, "pandora.db"),
+        "files": os.path.join(state.blob_dir, "files")
     }
 
 # Initial attempt to load from config or env
-initial_vault_dir = os.environ.get("PANDORA_VAULT_DIR")
-if not initial_vault_dir and os.path.exists(state.config_path):
-    with open(state.config_path, "r") as f:
-        initial_vault_dir = f.read().strip()
+initial_config_dir = os.environ.get("PANDORA_CONFIG_DIR")
+initial_blob_dir = os.environ.get("PANDORA_BLOB_DIR")
 
-if initial_vault_dir:
-    paths = setup_vault_paths(initial_vault_dir)
+# Support legacy PANDORA_VAULT_DIR for backward compatibility
+if not initial_config_dir:
+    initial_config_dir = os.environ.get("PANDORA_VAULT_DIR")
+
+if not initial_config_dir and os.path.exists(state.config_path):
+    try:
+        with open(state.config_path, "r") as f:
+            config_data = json.load(f)
+            initial_config_dir = config_data.get("config_dir")
+            initial_blob_dir = config_data.get("blob_dir")
+    except (json.JSONDecodeError, KeyError, AttributeError):
+        # Fallback for old plain text config
+        with open(state.config_path, "r") as f:
+            initial_config_dir = f.read().strip()
+
+if initial_config_dir:
+    paths = setup_vault_paths(initial_config_dir, initial_blob_dir)
 else:
     # Default if no config
     paths = setup_vault_paths(os.path.expanduser("~/.pandora"))
@@ -173,6 +192,7 @@ class SearchParser:
 class InitRequest(BaseModel):
     password: str
     vault_dir: Optional[str] = None
+    blob_dir: Optional[str] = None
 
 class UnlockRequest(BaseModel):
     password: str
@@ -189,6 +209,12 @@ class FileCategoryUpdate(BaseModel):
 
 class FileRenameRequest(BaseModel):
     filename: str
+
+class URLImportRequest(BaseModel):
+    url: str
+    filename: Optional[str] = None
+    category_id: Optional[int] = None
+    tags: List[str] = []
 
 class TagCreate(BaseModel):
     name: str
@@ -269,10 +295,16 @@ def batch_delete_files(req: BatchDeleteRequest):
 @app.post("/api/init")
 def init_vault(req: InitRequest, response: Response):
     global paths
-    if req.vault_dir:
-        paths = setup_vault_paths(os.path.abspath(req.vault_dir))
-        with open(state.config_path, "w") as f:
-            f.write(state.vault_dir)
+    # Use paths from request if provided, otherwise fallback to current state (env or config)
+    config_dir = os.path.abspath(req.vault_dir) if req.vault_dir else (state.config_dir or os.path.expanduser("~/.pandora"))
+    blob_dir = os.path.abspath(req.blob_dir) if req.blob_dir else state.blob_dir
+
+    paths = setup_vault_paths(config_dir, blob_dir)
+    with open(state.config_path, "w") as f:
+        json.dump({
+            "config_dir": state.config_dir,
+            "blob_dir": state.blob_dir
+        }, f)
 
     if os.path.exists(paths["salt"]):
         raise HTTPException(status_code=400, detail="Vault already initialized")
@@ -385,9 +417,86 @@ def restart_server():
     threading.Timer(0.1, restart).start()
     return {"status": "restarting"}
 
+@app.get("/api/settings/storage", dependencies=[Depends(require_unlocked)])
+def get_storage_settings():
+    return {
+        "config_dir": state.config_dir,
+        "blob_dir": state.blob_dir
+    }
+
+@app.get("/api/import/preview", dependencies=[Depends(require_unlocked)])
+def import_preview(url: str):
+    from .scrapers.ytdlp_engine import fetch_metadata
+    meta = fetch_metadata(url)
+    if not meta:
+        raise HTTPException(status_code=400, detail="Failed to fetch metadata")
+    return meta
+
+@app.post("/api/import/url", dependencies=[Depends(require_unlocked)])
+def import_url(req: URLImportRequest):
+    from .scrapers.ytdlp_engine import fetch_metadata, download_stream
+    from .database import Tag as DBTag
+    import requests
+    import base64
+    
+    meta = fetch_metadata(req.url)
+    if not meta:
+        raise HTTPException(status_code=400, detail="Failed to fetch metadata")
+    
+    filename = req.filename or f"{meta['title']}.{meta['ext']}"
+    duration = meta.get('duration')
+    
+    # Download thumbnail if available
+    thumbnail_b64 = None
+    if meta.get('thumbnail_url'):
+        try:
+            r = requests.get(meta['thumbnail_url'], timeout=10)
+            if r.ok:
+                thumbnail_b64 = f"data:{r.headers.get('Content-Type', 'image/jpeg')};base64,{base64.b64encode(r.content).decode('utf-8')}"
+        except Exception as e:
+            state.logger.warning(f"Failed to download thumbnail from {meta['thumbnail_url']}: {e}")
+    
+    try:
+        file_id, total_size = state.vault.store_file(download_stream(req.url))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Download failed: {str(e)}")
+    
+    with state.db.session_scope() as session:
+        # Handle tags
+        tag_objs = []
+        for tname in req.tags:
+            tname = tname.strip()
+            if not tname: continue
+            tag = session.query(DBTag).filter(DBTag.name == tname).first()
+            if not tag:
+                tag = DBTag(name=tname)
+                session.add(tag)
+                session.flush()
+            tag_objs.append(tag)
+        
+        db_file = DBFile(
+            id=file_id,
+            filename=filename,
+            size=total_size,
+            duration=duration,
+            category_id=req.category_id,
+            thumbnail_data=thumbnail_b64
+        )
+        if tag_objs:
+            db_file.tags = tag_objs
+            
+        session.add(db_file)
+        
+    return {"id": file_id, "filename": filename}
+
 @app.post("/api/files", dependencies=[Depends(require_unlocked)])
-def upload_file(file: UploadFile, thumbnail: Optional[str] = Form(None)):
-    temp_dir = os.path.join(state.vault_dir, "temp")
+def upload_file(
+    file: UploadFile, 
+    thumbnail: Optional[str] = Form(None),
+    category_id: Optional[int] = Form(None),
+    tags: Optional[str] = Form(None) # Comma-separated or JSON list
+):
+    temp_dir = os.path.join(state.config_dir, "temp")
     os.makedirs(temp_dir, exist_ok=True)
     ext = file.filename.split('.')[-1] if '.' in file.filename else 'tmp'
     temp_path = os.path.join(temp_dir, f"{secrets.token_hex(16)}.{ext}")
@@ -410,23 +519,45 @@ def upload_file(file: UploadFile, thumbnail: Optional[str] = Form(None)):
 
         file_id, total_size = state.vault.store_file(file_iterator())
         
-        # Automatic categorization
-        cat_name = "Other"
-        ext_lower = ext.lower()
-        if ext_lower in ['mp4', 'mov', 'avi', 'mkv', 'webm', 'flv', 'wmv']:
-            cat_name = "Video"
-        elif ext_lower in ['jpg', 'jpeg', 'png', 'gif', 'webp']:
-            cat_name = "Image"
-        elif ext_lower in ['pdf', 'txt', 'doc', 'docx']:
-            cat_name = "Document"
+        # Determine category
+        final_category_id = category_id
+        if not final_category_id:
+            # Automatic categorization if none provided
+            cat_name = "Other"
+            ext_lower = ext.lower()
+            if ext_lower in ['mp4', 'mov', 'avi', 'mkv', 'webm', 'flv', 'wmv']:
+                cat_name = "Video"
+            elif ext_lower in ['jpg', 'jpeg', 'png', 'gif', 'webp']:
+                cat_name = "Image"
+            elif ext_lower in ['pdf', 'txt', 'doc', 'docx']:
+                cat_name = "Document"
 
+            with state.db.session_scope() as session:
+                category = session.query(DBCategory).filter(DBCategory.name == cat_name).first()
+                if not category:
+                    category = DBCategory(name=cat_name)
+                    session.add(category)
+                    session.flush()
+                final_category_id = category.id
+
+        # Handle tags
+        tag_list = []
+        if tags:
+            try:
+                tag_list = json.loads(tags)
+            except:
+                tag_list = [t.strip() for t in tags.split(',') if t.strip()]
+
+        from .database import Tag as DBTag
         with state.db.session_scope() as session:
-            # Find or create automatic category
-            category = session.query(DBCategory).filter(DBCategory.name == cat_name).first()
-            if not category:
-                category = DBCategory(name=cat_name)
-                session.add(category)
-                session.flush() # Get ID
+            tag_objs = []
+            for tname in tag_list:
+                tag = session.query(DBTag).filter(DBTag.name == tname).first()
+                if not tag:
+                    tag = DBTag(name=tname)
+                    session.add(tag)
+                    session.flush()
+                tag_objs.append(tag)
             
             db_file = DBFile(
                 id=file_id, 
@@ -434,12 +565,14 @@ def upload_file(file: UploadFile, thumbnail: Optional[str] = Form(None)):
                 size=total_size, 
                 duration=duration,
                 thumbnail_data=thumbnail,
-                category_id=category.id,
+                category_id=final_category_id,
                 metadata_created_at=creation_date
             )
+            if tag_objs:
+                db_file.tags = tag_objs
             session.add(db_file)
         
-        return {"id": file_id, "filename": file.filename, "category": cat_name}
+        return {"id": file_id, "filename": file.filename}
     finally:
         if os.path.exists(temp_path):
             file_size = os.path.getsize(temp_path)
@@ -777,9 +910,9 @@ def start():
     import uvicorn
     from .security import generate_self_signed_cert
     
-    # Reload paths based on potentially updated vault_dir
-    p = setup_vault_paths(state.vault_dir or os.path.expanduser("~/.pandora"))
-    cert_path, key_path = os.path.join(state.vault_dir, "cert.pem"), os.path.join(state.vault_dir, "key.pem")
+    # Reload paths based on potentially updated config_dir
+    p = setup_vault_paths(state.config_dir or os.path.expanduser("~/.pandora"), state.blob_dir)
+    cert_path, key_path = os.path.join(state.config_dir, "cert.pem"), os.path.join(state.config_dir, "key.pem")
     generate_self_signed_cert(cert_path, key_path)
     
     debug_mode = os.environ.get("PANDORA_DEBUG", "false").lower() == "true"
@@ -798,7 +931,8 @@ def start():
     port = 8000
     print(f"\n" + "="*60)
     print(f"🚀 PANDORA IS RUNNING")
-    print(f"Vault: {state.vault_dir}")
+    print(f"Config: {state.config_dir}")
+    print(f"Storage: {state.blob_dir}")
     print(f"-"*60)
     print(f"🔗 Local:   https://localhost:{port}")
     print(f"🌐 Network: https://{local_ip}:{port}")

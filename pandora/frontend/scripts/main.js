@@ -8,12 +8,39 @@ const errorDiv = document.getElementById('login-error');
 
 const setupPassInput = document.getElementById('setup-password');
 const setupDirInput = document.getElementById('setup-vault-dir');
+const setupAdvancedToggle = document.getElementById('setup-advanced-toggle');
+const setupAdvancedFields = document.getElementById('setup-advanced-fields');
+const setupBlobDirInput = document.getElementById('setup-blob-dir');
 const setupBtn = document.getElementById('setup-btn');
 const setupErrorDiv = document.getElementById('setup-error');
 
+if (setupAdvancedToggle) {
+    setupAdvancedToggle.onchange = () => {
+        setupAdvancedFields.style.display = setupAdvancedToggle.checked ? 'block' : 'none';
+    };
+}
+
+
 const fileInput = document.getElementById('file-input');
-const uploadBtn = document.getElementById('upload-btn');
 const galleryGrid = document.getElementById('gallery-grid');
+
+const importModal = document.getElementById('import-modal');
+const closeImportBtn = document.getElementById('close-import');
+const importModalTitle = document.getElementById('import-modal-title');
+const importFilenameInput = document.getElementById('import-filename');
+const importCategoryGrid = document.getElementById('import-category-grid');
+const importTagInput = document.getElementById('import-tag-input');
+const importTagsList = document.getElementById('import-tags-list');
+const importSelectedTagsDiv = document.getElementById('import-selected-tags');
+const importConfirmBtn = document.getElementById('import-confirm-btn');
+const importPreviewContainer = document.getElementById('import-preview-container');
+const importPreviewThumb = document.getElementById('import-preview-thumb');
+const importProgress = document.getElementById('import-progress');
+const importProgressBar = document.getElementById('import-progress-bar');
+const importStatusText = document.getElementById('import-status-text');
+
+const importUrlInput = document.getElementById('import-url-input');
+const importUrlBtn = document.getElementById('import-url-btn');
 
 const playerModal = document.getElementById('player-modal');
 const videoPlayer = document.getElementById('video-player');
@@ -121,6 +148,8 @@ async function authenticate() {
 async function runSetup() {
     const password = setupPassInput.value;
     const vault_dir = setupDirInput.value.trim();
+    const blob_dir = setupAdvancedToggle.checked ? setupBlobDirInput.value.trim() : null;
+
     if (!password) { setupErrorDiv.textContent = 'Password required'; return; }
     
     setupErrorDiv.textContent = 'Initializing vault...';
@@ -128,7 +157,11 @@ async function runSetup() {
         const res = await fetch('/api/init', {
             method: 'POST',
             headers: {'Content-Type': 'application/json'},
-            body: JSON.stringify({password, vault_dir: vault_dir || null})
+            body: JSON.stringify({
+                password, 
+                vault_dir: vault_dir || null,
+                blob_dir: blob_dir || null
+            })
         });
         if (res.ok) {
             setupContainer.classList.remove('active');
@@ -655,7 +688,17 @@ window.manageTags = async (id, currentTags) => {
 };
 
 // --- Settings Flow ---
-settingsBtn.onclick = () => settingsModal.classList.add('active');
+settingsBtn.onclick = async () => {
+    settingsModal.classList.add('active');
+    try {
+        const res = await fetch('/api/settings/storage');
+        if (res.ok) {
+            const data = await res.json();
+            document.getElementById('settings-config-dir').textContent = data.config_dir;
+            document.getElementById('settings-blob-dir').textContent = data.blob_dir;
+        }
+    } catch (e) { console.error(e); }
+};
 closeSettings.onclick = () => settingsModal.classList.remove('active');
 
 restartBtn.onclick = async () => {
@@ -712,53 +755,198 @@ async function generateThumbnail(file) {
     });
 }
 
-fileInput.addEventListener('change', () => {
-    const display = document.getElementById('file-name-display');
-    const count = fileInput.files.length;
-    if (count === 0) display.textContent = '';
-    else if (count === 1) display.textContent = fileInput.files[0].name;
-    else display.textContent = `${count} files selected`;
-});
+// --- Import Flow ---
+let importMode = 'upload'; // 'upload' or 'url'
+let importFiles = [];
+let importUrl = '';
+let importSelectedCategoryId = null;
+let importSelectedTags = new Set();
 
-uploadBtn.addEventListener('click', async () => {
-    const files = Array.from(fileInput.files);
-    if (files.length === 0) return;
+function openImportModal(mode, data) {
+    importMode = mode;
+    importSelectedTags.clear();
+    importSelectedCategoryId = null;
+    importProgress.style.display = 'none';
+    importConfirmBtn.disabled = false;
+    importConfirmBtn.style.display = 'block';
     
-    uploadBtn.disabled = true;
-    const originalText = 'Encrypt & Store';
-    
-    for (let i = 0; i < files.length; i++) {
-        const file = files[i];
-        const progress = files.length > 1 ? ` (${i+1}/${files.length})` : '';
-        
-        uploadBtn.textContent = `Processing...${progress}`;
-        const thumbnailData = await generateThumbnail(file);
-        
-        uploadBtn.textContent = `Encrypting...${progress}`;
-        const formData = new FormData();
-        formData.append('file', file);
-        if (thumbnailData) formData.append('thumbnail', thumbnailData);
-        
-        try {
-            const res = await fetch('/api/files', { method: 'POST', body: formData });
-            if (!res.ok) {
-                console.error(`Failed to upload ${file.name}`);
-                alert(`Failed to upload ${file.name}`);
-            }
-        } catch (e) {
-            console.error(e);
-            alert(`Network error uploading ${file.name}`);
+    if (mode === 'upload') {
+        importFiles = Array.from(data);
+        importModalTitle.textContent = importFiles.length > 1 ? `Import ${importFiles.length} Files` : 'Confirm Import';
+        importFilenameInput.value = importFiles.length === 1 ? importFiles[0].name : '';
+        importFilenameInput.disabled = importFiles.length > 1;
+        importPreviewContainer.style.display = 'none';
+    } else {
+        importUrl = data.url;
+        importModalTitle.textContent = 'Import from URL';
+        importFilenameInput.value = `${data.title || 'video'}.${data.ext || 'mp4'}`;
+        importFilenameInput.disabled = false;
+        if (data.thumbnail_url) {
+            importPreviewThumb.src = data.thumbnail_url;
+            importPreviewContainer.style.display = 'block';
+        } else {
+            importPreviewContainer.style.display = 'none';
+        }
+        // Pre-select tags if any
+        if (data.tags) {
+            data.tags.slice(0, 5).forEach(t => importSelectedTags.add(t));
         }
     }
     
+    renderImportCategories();
+    renderImportTags();
+    importModal.classList.add('active');
+}
+
+function renderImportCategories() {
+    importCategoryGrid.innerHTML = categories.map(cat => `
+        <button class="btn btn-outline btn-small ${importSelectedCategoryId === cat.id ? 'active' : ''}" 
+                onclick="selectImportCategory(${cat.id})">
+            ${escapeHTML(cat.name)}
+        </button>
+    `).join('');
+}
+
+window.selectImportCategory = (id) => {
+    importSelectedCategoryId = id;
+    renderImportCategories();
+};
+
+function renderImportTags() {
+    // Current tags from system
+    importTagsList.innerHTML = allTags.map(tag => `
+        <span class="tag-chip ${importSelectedTags.has(tag) ? 'selected' : ''}" onclick="toggleImportTag('${tag.replace(/'/g, "\\'")}')">
+            ${escapeHTML(tag)}
+        </span>
+    `).join('');
+    
+    // Selected tags display (with remove button)
+    importSelectedTagsDiv.innerHTML = Array.from(importSelectedTags).map(tag => `
+        <span class="tag-chip selected">
+            ${escapeHTML(tag)} <span style="margin-left: 5px; cursor: pointer;" onclick="toggleImportTag('${tag.replace(/'/g, "\\'")}')">&times;</span>
+        </span>
+    `).join('');
+}
+
+window.toggleImportTag = (tag) => {
+    if (importSelectedTags.has(tag)) importSelectedTags.delete(tag);
+    else importSelectedTags.add(tag);
+    renderImportTags();
+};
+
+importTagInput.onkeypress = (e) => {
+    if (e.key === 'Enter') {
+        const val = importTagInput.value.trim();
+        if (val) {
+            importSelectedTags.add(val);
+            importTagInput.value = '';
+            renderImportTags();
+        }
+    }
+};
+
+closeImportBtn.onclick = () => importModal.classList.remove('active');
+
+importConfirmBtn.onclick = async () => {
+    importConfirmBtn.disabled = true;
+    importConfirmBtn.style.display = 'none';
+    importProgress.style.display = 'block';
+    importProgressBar.style.width = '0%';
+    
+    const tagsArr = Array.from(importSelectedTags);
+    
+    if (importMode === 'upload') {
+        for (let i = 0; i < importFiles.length; i++) {
+            const file = importFiles[i];
+            importStatusText.textContent = `Processing ${i+1}/${importFiles.length}: ${file.name}`;
+            
+            const thumbnailData = await generateThumbnail(file);
+            
+            const formData = new FormData();
+            formData.append('file', file);
+            if (importFiles.length === 1) {
+                formData.append('filename', importFilenameInput.value);
+            }
+            if (thumbnailData) formData.append('thumbnail', thumbnailData);
+            if (importSelectedCategoryId) formData.append('category_id', importSelectedCategoryId);
+            if (tagsArr.length) formData.append('tags', JSON.stringify(tagsArr));
+            
+            importStatusText.textContent = `Encrypting ${i+1}/${importFiles.length}: ${file.name}`;
+            
+            await new Promise((resolve, reject) => {
+                const xhr = new XMLHttpRequest();
+                xhr.open('POST', '/api/files');
+                xhr.upload.onprogress = (e) => {
+                    if (e.lengthComputable) {
+                        const pct = (e.loaded / e.total) * 100;
+                        importProgressBar.style.width = `${pct}%`;
+                    }
+                };
+                xhr.onload = () => xhr.status === 200 ? resolve() : reject(new Error('Upload failed'));
+                xhr.onerror = () => reject(new Error('Network error'));
+                xhr.send(formData);
+            });
+        }
+    } else {
+        importStatusText.textContent = 'Streaming from URL into Vault...';
+        importProgressBar.style.width = '50%';
+        try {
+            const res = await fetch('/api/import/url', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({
+                    url: importUrl,
+                    filename: importFilenameInput.value,
+                    category_id: importSelectedCategoryId,
+                    tags: tagsArr
+                })
+            });
+            if (!res.ok) {
+                const data = await res.json();
+                throw new Error(data.detail || 'Download failed');
+            }
+        } catch (e) {
+            alert('Error: ' + e.message);
+            importConfirmBtn.disabled = false;
+            importConfirmBtn.style.display = 'block';
+            importProgress.style.display = 'none';
+            return;
+        }
+    }
+    
+    importModal.classList.remove('active');
     fileInput.value = '';
     document.getElementById('file-name-display').textContent = '';
-    uploadBtn.textContent = originalText;
-    uploadBtn.disabled = false;
-    
-    // Refresh UI
     await Promise.all([loadFiles(), loadCategories(), loadTags()]);
-});
+};
+
+importUrlBtn.onclick = async () => {
+    const url = importUrlInput.value.trim();
+    if (!url) return;
+    
+    importUrlBtn.disabled = true;
+    importUrlBtn.textContent = 'Fetching...';
+    try {
+        const res = await fetch(`/api/import/preview?url=${encodeURIComponent(url)}`);
+        if (res.ok) {
+            const data = await res.json();
+            data.url = url;
+            openImportModal('url', data);
+            importUrlInput.value = '';
+        } else {
+            const data = await res.json();
+            alert('Failed: ' + (data.detail || 'Check URL'));
+        }
+    } catch (e) { console.error(e); alert('Network error'); }
+    importUrlBtn.disabled = false;
+    importUrlBtn.textContent = 'Fetch Metadata';
+};
+
+fileInput.onchange = () => {
+    if (fileInput.files.length > 0) {
+        openImportModal('upload', fileInput.files);
+    }
+};
 
 function playFile(id, filename) {
     if (isImage(filename)) {
