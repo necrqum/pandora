@@ -971,6 +971,15 @@ importSelectAllBtn.onclick = () => {
     updateBulkUI();
 };
 
+window.addEventListener('keydown', (e) => {
+    if ((e.ctrlKey || e.metaKey) && e.key === 'a') {
+        if (importModal.classList.contains('active')) {
+            e.preventDefault();
+            importSelectAllBtn.click();
+        }
+    }
+});
+
 function updateBulkUI() {
     const selected = importQueue.filter(i => i.selected);
     if (selected.length === 1 && selected[0].mode === 'url' && selected[0].thumbnail) {
@@ -1054,6 +1063,13 @@ importTagInput.onkeypress = (e) => {
 closeImportBtn.onclick = () => importModal.classList.remove('active');
 
 importConfirmBtn.onclick = async () => {
+    // Capture any unsaved tag in the input field
+    const pendingTag = importTagInput.value.trim();
+    if (pendingTag) {
+        importQueue.filter(i => i.selected).forEach(i => i.tags.add(pendingTag));
+        importTagInput.value = '';
+    }
+
     const selected = importQueue.filter(i => i.selected);
     if (selected.length === 1) {
         selected[0].filename = importFilenameInput.value.trim();
