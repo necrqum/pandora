@@ -52,6 +52,13 @@ const exportBtn = document.getElementById('export-btn');
 const purgeMassBtn = document.getElementById('purge-mass-btn');
 const purgeEverythingBtn = document.getElementById('purge-everything-btn');
 
+const secureModal = document.getElementById('secure-modal');
+const secureModalTitle = document.getElementById('secure-modal-title');
+const secureModalText = document.getElementById('secure-modal-text');
+const securePassInput = document.getElementById('secure-password-input');
+const secureCancelBtn = document.getElementById('secure-cancel-btn');
+const secureConfirmBtn = document.getElementById('secure-confirm-btn');
+
 const playerModal = document.getElementById('player-modal');
 const videoPlayer = document.getElementById('video-player');
 const imageViewer = document.getElementById('image-viewer');
@@ -745,10 +752,35 @@ settingsBtn.onclick = async () => {
 };
 closeSettings.onclick = () => settingsModal.classList.remove('active');
 
+async function openSecurePrompt(title, text) {
+    return new Promise((resolve) => {
+        secureModalTitle.textContent = title;
+        secureModalText.textContent = text;
+        securePassInput.value = '';
+        secureModal.classList.add('active');
+        securePassInput.focus();
+        
+        secureCancelBtn.onclick = () => {
+            secureModal.classList.remove('active');
+            resolve(null);
+        };
+        
+        secureConfirmBtn.onclick = () => {
+            const pw = securePassInput.value;
+            secureModal.classList.remove('active');
+            resolve(pw);
+        };
+        
+        securePassInput.onkeypress = (e) => {
+            if (e.key === 'Enter') secureConfirmBtn.click();
+        };
+    });
+}
+
 exportBtn.onclick = async () => {
     const target = exportPathInput.value.trim();
     if (!target) return alert('Target path required');
-    const password = prompt('Confirm Master Password to begin decryption/export:');
+    const password = await openSecurePrompt('Export Box', 'Confirm Master Password to begin decryption/export to: ' + target);
     if (!password) return;
 
     exportBtn.disabled = true;
@@ -772,8 +804,7 @@ exportBtn.onclick = async () => {
 };
 
 purgeMassBtn.onclick = async () => {
-    if (!confirm('DANGER: This will permanently delete ALL encrypted media files. The database metadata will also be cleared. Continue?')) return;
-    const password = prompt('Confirm Master Password to WIPE MEDIA:');
+    const password = await openSecurePrompt('Wipe All Media', 'DANGER: This will permanently delete ALL encrypted media files. Metadata will also be cleared.');
     if (!password) return;
 
     try {
@@ -788,8 +819,7 @@ purgeMassBtn.onclick = async () => {
 };
 
 purgeEverythingBtn.onclick = async () => {
-    if (!confirm('ULTIMATE DANGER: This will delete EVERYTHING (Database, Keys, Files) and shutdown the server. Continue?')) return;
-    const password = prompt('Confirm Master Password for NUCLEAR RESET:');
+    const password = await openSecurePrompt('NUCLEAR RESET', 'ULTIMATE DANGER: This will delete EVERYTHING (Database, Keys, Files) and shutdown the server.');
     if (!password) return;
 
     try {
@@ -875,9 +905,18 @@ function openImportModal(mode, data) {
             categoryId: null,
             tags: new Set(),
             selected: true,
-            mode: 'upload'
+            mode: 'upload',
+            fileThumbnail: null
         }));
         importModalTitle.textContent = `Import Files (${importQueue.length})`;
+        
+        // Async generate thumbnails for the queue
+        importQueue.forEach(item => {
+            generateThumbnail(item.file).then(t => {
+                item.fileThumbnail = t;
+                renderImportQueue();
+            });
+        });
     } else {
         importQueue = [{
             id: 0,
@@ -899,15 +938,21 @@ function openImportModal(mode, data) {
 
 function renderImportQueue() {
     importQueueCount.textContent = importQueue.length;
-    importQueueList.innerHTML = importQueue.map(item => `
-        <div class="queue-item ${item.selected ? 'selected' : ''}" onclick="toggleQueueItem(${item.id})">
-            <input type="checkbox" ${item.selected ? 'checked' : ''} onclick="event.stopPropagation(); toggleQueueItem(${item.id})">
-            <div style="flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 0.8rem;">
-                ${escapeHTML(item.filename)}
+    importQueueList.innerHTML = importQueue.map(item => {
+        const thumb = item.thumbnail || (item.fileThumbnail ? item.fileThumbnail : '');
+        return `
+            <div class="queue-item ${item.selected ? 'selected' : ''}" onclick="toggleQueueItem(${item.id})">
+                <input type="checkbox" ${item.selected ? 'checked' : ''} onclick="event.stopPropagation(); toggleQueueItem(${item.id})">
+                <div style="width: 40px; height: 40px; border-radius: 4px; overflow: hidden; background: #000; flex-shrink: 0;">
+                    ${thumb ? `<img src="${thumb}" style="width: 100%; height: 100%; object-fit: cover;" />` : `<div style="display:flex;align-items:center;justify-content:center;height:100%;font-size:1.2rem;">${isImage(item.filename) ? '🖼️' : '🎬'}</div>`}
+                </div>
+                <div style="flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 0.8rem;">
+                    ${escapeHTML(item.filename)}
+                </div>
+                ${item.categoryId ? `<span class="category-count" style="font-size: 0.6rem; opacity: 1;">${categories.find(c=>c.id===item.categoryId)?.name || ''}</span>` : ''}
             </div>
-            ${item.categoryId ? `<span class="category-count" style="font-size: 0.6rem; opacity: 1;">${categories.find(c=>c.id===item.categoryId)?.name || ''}</span>` : ''}
-        </div>
-    `).join('');
+        `;
+    }).join('');
 }
 
 window.toggleQueueItem = (id) => {
@@ -968,7 +1013,13 @@ function renderImportTags() {
     const selected = importQueue.filter(i => i.selected);
     const activeTags = selected.length > 0 ? selected[0].tags : new Set();
 
-    importTagsList.innerHTML = allTags.map(tag => `
+    // Intersection of all existing tags + any NEW tags added in this session
+    const sessionTags = new Set(allTags);
+    importQueue.forEach(item => {
+        item.tags.forEach(t => sessionTags.add(t));
+    });
+
+    importTagsList.innerHTML = Array.from(sessionTags).map(tag => `
         <span class="tag-chip ${activeTags.has(tag) ? 'selected' : ''}" onclick="toggleImportTag('${tag.replace(/'/g, "\\'")}')">
             ${escapeHTML(tag)}
         </span>

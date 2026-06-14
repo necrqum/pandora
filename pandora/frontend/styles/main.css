@@ -750,8 +750,28 @@ li.active .category-count {
 
 .modal-content {
     position: relative;
-    width: 95%; max-height: 95%;
-    display: flex; flex-direction: column; align-items: center;
+    width: 95%; max-height: 90vh;
+    display: flex; flex-direction: column;
+}
+
+.modal-inner {
+    background: var(--card-bg);
+    padding: 2.5rem;
+    border-radius: 12px;
+    width: 100%;
+    max-width: 800px;
+    max-height: 90vh;
+    overflow-y: auto;
+    position: relative;
+    border: 1px solid var(--glass-border);
+    box-shadow: var(--shadow-subtle);
+}
+
+@media (max-width: 768px) {
+    .modal-inner {
+        padding: 1.5rem;
+        max-width: 95%;
+    }
 }
 
 .close-btn {

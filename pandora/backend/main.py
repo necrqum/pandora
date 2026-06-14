@@ -463,8 +463,13 @@ def get_storage_settings():
 def purge_vault(req: PurgeRequest):
     # Security: Verify master password before destructive action
     try:
+        with open(paths["salt"], "rb") as f:
+            salt = f.read()
         # Check if password can derive a valid key (verify against salt)
-        temp_security = VaultSecurity(req.password, state.config_dir)
+        temp_security = VaultSecurity(req.password, salt, skip_validation=True)
+        # Verify the key actually works by trying to decrypt the DB or just comparing with state.security
+        if state.security and temp_security.key != state.security.key:
+             raise HTTPException(status_code=401, detail="Invalid password")
     except Exception:
         raise HTTPException(status_code=401, detail="Invalid password")
 
@@ -496,7 +501,11 @@ def purge_vault(req: PurgeRequest):
 def export_vault(req: ExportRequest):
     # Security: Verify master password
     try:
-        VaultSecurity(req.password, state.config_dir)
+        with open(paths["salt"], "rb") as f:
+            salt = f.read()
+        temp_security = VaultSecurity(req.password, salt, skip_validation=True)
+        if state.security and temp_security.key != state.security.key:
+             raise HTTPException(status_code=401, detail="Invalid password")
     except Exception:
         raise HTTPException(status_code=401, detail="Invalid password")
 

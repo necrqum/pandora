@@ -46,7 +46,8 @@ def download_stream(url: str, chunk_size: int = 4 * 1024 * 1024) -> Iterator[byt
     cmd = [
         ytdlp_path,
         "-o", "-", # Output to stdout
-        "-f", "bestvideo+bestaudio/best",
+        "-f", "bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best",
+        "--merge-output-format", "mp4",
         "--quiet",
         "--no-warnings",
         "--no-playlist",
