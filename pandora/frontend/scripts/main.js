@@ -484,43 +484,83 @@ async function loadFolderHierarchy() {
 }
 
 function renderFolderExplorer() {
+    if (!folderData) return;
+    
     let curr = folderData;
     // Traverse to current path
     for (const p of folderPath) {
-        if (curr.children[p]) curr = curr.children[p];
+        if (curr.children && curr.children[p]) {
+            curr = curr.children[p];
+        } else {
+            console.warn("Path not found in hierarchy:", p);
+            break;
+        }
     }
 
-    const breadcrumbsHTML = `
-        <div class="folder-breadcrumb">
-            <span class="breadcrumb-item" onclick="navigateToPath([])">Root</span>
-            ${folderPath.map((p, i) => `
-                <span class="breadcrumb-sep">/</span>
-                <span class="breadcrumb-item" onclick="navigateToPath(${JSON.stringify(folderPath.slice(0, i + 1))})">${escapeHTML(p)}</span>
-            `).join('')}
-        </div>
-    `;
+    folderExplorer.innerHTML = '';
+    
+    // Render Breadcrumbs
+    const bcContainer = document.createElement('div');
+    bcContainer.className = 'folder-breadcrumb';
+    
+    const rootItem = document.createElement('span');
+    rootItem.className = 'breadcrumb-item';
+    rootItem.textContent = 'Root';
+    rootItem.onclick = () => navigateToPath([]);
+    bcContainer.appendChild(rootItem);
+    
+    folderPath.forEach((p, i) => {
+        const sep = document.createElement('span');
+        sep.className = 'breadcrumb-sep';
+        sep.textContent = '/';
+        bcContainer.appendChild(sep);
+        
+        const item = document.createElement('span');
+        item.className = 'breadcrumb-item';
+        item.textContent = p;
+        const targetPath = folderPath.slice(0, i + 1);
+        item.onclick = () => navigateToPath(targetPath);
+        bcContainer.appendChild(item);
+    });
+    
+    folderExplorer.appendChild(bcContainer);
 
     const children = Object.values(curr.children || {});
     const files = curr.files || [];
+    
+    // Render Folders
+    children.forEach(c => {
+        const row = document.createElement('div');
+        row.className = 'folder-row';
+        row.innerHTML = `
+            <span class="icon">📁</span>
+            <span class="name">${escapeHTML(c.name)}</span>
+            <span class="count">${Object.keys(c.children || {}).length + (c.files || []).length} items</span>
+        `;
+        row.onclick = () => navigateToPath([...folderPath, c.name]);
+        folderExplorer.appendChild(row);
+    });
 
-    const listHTML = [
-        ...children.map(c => `
-            <div class="folder-row" onclick="navigateToPath(${JSON.stringify([...folderPath, c.name])})">
-                <span class="icon">📁</span>
-                <span class="name">${escapeHTML(c.name)}</span>
-                <span class="count">${Object.keys(c.children || {}).length} items</span>
-            </div>
-        `),
-        ...files.map(f => `
-            <div class="folder-row" onclick="playFile('${f.id}', '${f.filename.replace(/'/g, "\\'")}')">
-                <span class="icon">${isImage(f.filename) ? '🖼️' : '🎬'}</span>
-                <span class="name">${escapeHTML(f.filename)}</span>
-                <span class="count">${f.is_favorite ? '⭐' : ''}</span>
-            </div>
-        `)
-    ].join('');
+    // Render Files
+    files.forEach(f => {
+        const row = document.createElement('div');
+        row.className = 'folder-row';
+        row.innerHTML = `
+            <span class="icon">${isImage(f.filename) ? '🖼️' : '🎬'}</span>
+            <span class="name">${escapeHTML(f.filename)}</span>
+            <span class="count">${f.is_favorite ? '⭐' : ''}</span>
+        `;
+        row.onclick = () => playFile(f.id, f.filename);
+        folderExplorer.appendChild(row);
+    });
 
-    folderExplorer.innerHTML = breadcrumbsHTML + (listHTML || '<div style="opacity:0.5; padding: 2rem;">Folder is empty</div>');
+    if (children.length === 0 && files.length === 0) {
+        const empty = document.createElement('div');
+        empty.style.opacity = '0.5';
+        empty.style.padding = '2rem';
+        empty.textContent = 'Folder is empty';
+        folderExplorer.appendChild(empty);
+    }
 }
 
 window.navigateToPath = (path) => {

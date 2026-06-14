@@ -522,17 +522,38 @@ li.active .category-count {
     color: var(--accent);
 }
 
-.btn-xs.active {
-    background: var(--accent);
-    color: white;
-    opacity: 1;
+.view-switcher {
+    display: flex;
+    background: rgba(255, 255, 255, 0.03);
+    border: 1px solid var(--glass-border);
+    border-radius: 20px;
+    padding: 3px;
 }
 
-/* Folder Explorer */
-.folder-explorer {
-    display: flex;
-    flex-direction: column;
-    gap: 0.5rem;
+.view-switcher button {
+    border: none;
+    background: transparent;
+    padding: 6px 16px;
+    border-radius: 17px;
+    color: var(--text-secondary);
+    font-size: 0.8rem;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.2s;
+}
+
+.view-switcher button:hover {
+    color: var(--text-primary);
+}
+
+.view-switcher button.active {
+    background: var(--accent);
+    color: white;
+}
+
+/* Folder Explorer row fixes */
+.folder-row {
+    user-select: none;
 }
 
 .folder-row {
