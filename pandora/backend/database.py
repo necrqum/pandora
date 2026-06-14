@@ -4,6 +4,7 @@ from contextlib import contextmanager
 from sqlalchemy import create_engine, Column, String, Integer, DateTime, Table, ForeignKey, text
 from sqlalchemy.orm import declarative_base, relationship, sessionmaker
 from sqlalchemy.exc import OperationalError, IntegrityError as SAIntegrityError
+from sqlalchemy import event
 import sqlcipher3
 from datetime import datetime
 
@@ -63,6 +64,16 @@ class DatabaseManager:
                 poolclass=NullPool,
                 connect_args={"check_same_thread": False}
             )
+            
+            # Enable WAL mode and busy timeout for better concurrency
+            @event.listens_for(self.engine, "connect")
+            def set_sqlite_pragma(dbapi_connection, connection_record):
+                cursor = dbapi_connection.cursor()
+                cursor.execute("PRAGMA journal_mode=WAL")
+                cursor.execute("PRAGMA synchronous=NORMAL")
+                cursor.execute("PRAGMA busy_timeout=10000") # 10 seconds
+                cursor.close()
+
             self.SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=self.engine)
         except Exception as exc:
             logger.error("Failed to create database engine for %s: %s", db_path, exc)

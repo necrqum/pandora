@@ -229,6 +229,14 @@ class URLImportRequest(BaseModel):
     category_id: Optional[int] = None
     tags: List[str] = []
 
+class PurgeRequest(BaseModel):
+    password: str
+    purge_type: str # "mass" (files only) or "everything" (reset DB)
+
+class ExportRequest(BaseModel):
+    password: str
+    target_path: str
+
 class TagCreate(BaseModel):
     name: str
 
@@ -450,6 +458,85 @@ def get_storage_settings():
         "config_dir": state.config_dir,
         "blob_dir": state.blob_dir
     }
+
+@app.post("/api/settings/purge", dependencies=[Depends(require_unlocked)])
+def purge_vault(req: PurgeRequest):
+    # Security: Verify master password before destructive action
+    try:
+        # Check if password can derive a valid key (verify against salt)
+        temp_security = VaultSecurity(req.password, state.config_dir)
+    except Exception:
+        raise HTTPException(status_code=401, detail="Invalid password")
+
+    if req.purge_type == "mass":
+        # Delete all files in mass storage
+        files_dir = os.path.join(state.blob_dir, "files")
+        if os.path.exists(files_dir):
+            shutil.rmtree(files_dir)
+            os.makedirs(files_dir, exist_ok=True)
+        # Clear files in DB
+        with state.db.session_scope() as session:
+            session.query(DBFile).delete()
+        return {"status": "mass_purge_complete"}
+        
+    elif req.purge_type == "everything":
+        # WIPE EVERYTHING and LOCK
+        # Delete DB, salt, certs, and mass storage
+        shutil.rmtree(state.config_dir)
+        shutil.rmtree(state.blob_dir)
+        # Force immediate exit (user must restart)
+        def self_destruct():
+            time.sleep(1)
+            os._exit(0)
+        import threading
+        threading.Timer(0.1, self_destruct).start()
+        return {"status": "nuclear_purge_initiated"}
+
+@app.post("/api/settings/export", dependencies=[Depends(require_unlocked)])
+def export_vault(req: ExportRequest):
+    # Security: Verify master password
+    try:
+        VaultSecurity(req.password, state.config_dir)
+    except Exception:
+        raise HTTPException(status_code=401, detail="Invalid password")
+
+    target = os.path.abspath(req.target_path)
+    if not os.path.exists(target):
+        try:
+            os.makedirs(target, exist_ok=True)
+        except Exception as e:
+            raise HTTPException(status_code=400, detail=f"Cannot create target path: {str(e)}")
+
+    with state.db.session_scope() as session:
+        files = session.query(DBFile).all()
+        count = 0
+        for f in files:
+            cat_name = f.category.name if f.category else "Uncategorized"
+            # Sanitize names for folder structure
+            def sanitize(s): return "".join([c for c in s if c.isalnum() or c in (' ', '_', '-')]).strip()
+            
+            clean_cat = sanitize(cat_name)
+            # Create a path based on tags: Category/Tag1/Tag2/.../File
+            # We sort tags alphabetically for deterministic folder structure
+            sorted_tags = sorted([sanitize(t.name) for t in f.tags if t])
+            tag_path = os.path.join(*sorted_tags) if sorted_tags else ""
+            
+            dest_dir = os.path.join(target, clean_cat, tag_path)
+            os.makedirs(dest_dir, exist_ok=True)
+            
+            # Final destination path
+            dest_file = os.path.join(dest_dir, f.filename)
+            
+            # Decrypt and write to normal disk
+            try:
+                with open(dest_file, "wb") as out:
+                    for chunk in state.vault.stream_file(f.id):
+                        out.write(chunk)
+                count += 1
+            except Exception as e:
+                state.logger.error(f"Export failed for {f.filename}: {e}")
+
+    return {"status": "ok", "exported_count": count}
 
 @app.get("/api/import/preview", dependencies=[Depends(require_unlocked)])
 def import_preview(url: str):

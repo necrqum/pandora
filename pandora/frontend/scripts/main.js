@@ -42,6 +42,16 @@ const importStatusText = document.getElementById('import-status-text');
 const importUrlInput = document.getElementById('import-url-input');
 const importUrlBtn = document.getElementById('import-url-btn');
 
+const importQueueList = document.getElementById('import-queue-list');
+const importQueueCount = document.getElementById('import-queue-count');
+const importSelectAllBtn = document.getElementById('import-select-all');
+const importSingleFields = document.getElementById('import-single-fields');
+
+const exportPathInput = document.getElementById('export-path');
+const exportBtn = document.getElementById('export-btn');
+const purgeMassBtn = document.getElementById('purge-mass-btn');
+const purgeEverythingBtn = document.getElementById('purge-everything-btn');
+
 const playerModal = document.getElementById('player-modal');
 const videoPlayer = document.getElementById('video-player');
 const imageViewer = document.getElementById('image-viewer');
@@ -735,6 +745,64 @@ settingsBtn.onclick = async () => {
 };
 closeSettings.onclick = () => settingsModal.classList.remove('active');
 
+exportBtn.onclick = async () => {
+    const target = exportPathInput.value.trim();
+    if (!target) return alert('Target path required');
+    const password = prompt('Confirm Master Password to begin decryption/export:');
+    if (!password) return;
+
+    exportBtn.disabled = true;
+    exportBtn.textContent = 'Exporting...';
+    try {
+        const res = await fetch('/api/settings/export', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({ password, target_path: target })
+        });
+        if (res.ok) {
+            const data = await res.json();
+            alert(`Export successful! ${data.exported_count} files decrypted.`);
+        } else {
+            const data = await res.json();
+            alert('Export failed: ' + (data.detail || 'Check password/path'));
+        }
+    } catch (e) { alert('Network error during export'); }
+    exportBtn.disabled = false;
+    exportBtn.textContent = 'Start Export';
+};
+
+purgeMassBtn.onclick = async () => {
+    if (!confirm('DANGER: This will permanently delete ALL encrypted media files. The database metadata will also be cleared. Continue?')) return;
+    const password = prompt('Confirm Master Password to WIPE MEDIA:');
+    if (!password) return;
+
+    try {
+        const res = await fetch('/api/settings/purge', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({ password, purge_type: 'mass' })
+        });
+        if (res.ok) { alert('All media has been wiped.'); location.reload(); }
+        else { alert('Failed: Invalid password'); }
+    } catch (e) { alert('Network error'); }
+};
+
+purgeEverythingBtn.onclick = async () => {
+    if (!confirm('ULTIMATE DANGER: This will delete EVERYTHING (Database, Keys, Files) and shutdown the server. Continue?')) return;
+    const password = prompt('Confirm Master Password for NUCLEAR RESET:');
+    if (!password) return;
+
+    try {
+        const res = await fetch('/api/settings/purge', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({ password, purge_type: 'everything' })
+        });
+        if (res.ok) { alert('System wiped. Server is shutting down.'); window.close(); }
+        else { alert('Failed: Invalid password'); }
+    } catch (e) { alert('Network error'); }
+};
+
 restartBtn.onclick = async () => {
     if (!confirm('Restart server?')) return;
     try { await fetch('/api/server/restart', {method: 'POST'}); alert('Server restarting...'); location.reload(); } catch(e) {}
@@ -790,51 +858,100 @@ async function generateThumbnail(file) {
 }
 
 // --- Import Flow ---
-let importMode = 'upload'; // 'upload' or 'url'
-let importFiles = [];
-let importUrl = '';
-let importSelectedCategoryId = null;
-let importSelectedTags = new Set();
+let importQueue = [];
 
 function openImportModal(mode, data) {
-    importMode = mode;
-    importSelectedTags.clear();
-    importSelectedCategoryId = null;
+    importQueue = [];
     importProgress.style.display = 'none';
     importConfirmBtn.disabled = false;
     importConfirmBtn.style.display = 'block';
     
     if (mode === 'upload') {
-        importFiles = Array.from(data);
-        importModalTitle.textContent = importFiles.length > 1 ? `Import ${importFiles.length} Files` : 'Confirm Import';
-        importFilenameInput.value = importFiles.length === 1 ? importFiles[0].name : '';
-        importFilenameInput.disabled = importFiles.length > 1;
-        importPreviewContainer.style.display = 'none';
+        const files = Array.from(data);
+        importQueue = files.map((f, i) => ({
+            id: i,
+            file: f,
+            filename: f.name,
+            categoryId: null,
+            tags: new Set(),
+            selected: true,
+            mode: 'upload'
+        }));
+        importModalTitle.textContent = `Import Files (${importQueue.length})`;
     } else {
-        importUrl = data.url;
+        importQueue = [{
+            id: 0,
+            url: data.url,
+            filename: `${data.title || 'video'}.${data.ext || 'mp4'}`,
+            categoryId: null,
+            tags: new Set(data.tags ? data.tags.slice(0, 5) : []),
+            selected: true,
+            mode: 'url',
+            thumbnail: data.thumbnail_url
+        }];
         importModalTitle.textContent = 'Import from URL';
-        importFilenameInput.value = `${data.title || 'video'}.${data.ext || 'mp4'}`;
-        importFilenameInput.disabled = false;
-        if (data.thumbnail_url) {
-            importPreviewThumb.src = data.thumbnail_url;
-            importPreviewContainer.style.display = 'block';
-        } else {
-            importPreviewContainer.style.display = 'none';
-        }
-        // Pre-select tags if any
-        if (data.tags) {
-            data.tags.slice(0, 5).forEach(t => importSelectedTags.add(t));
-        }
     }
     
-    renderImportCategories();
-    renderImportTags();
+    renderImportQueue();
+    updateBulkUI();
     importModal.classList.add('active');
 }
 
+function renderImportQueue() {
+    importQueueCount.textContent = importQueue.length;
+    importQueueList.innerHTML = importQueue.map(item => `
+        <div class="queue-item ${item.selected ? 'selected' : ''}" onclick="toggleQueueItem(${item.id})">
+            <input type="checkbox" ${item.selected ? 'checked' : ''} onclick="event.stopPropagation(); toggleQueueItem(${item.id})">
+            <div style="flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 0.8rem;">
+                ${escapeHTML(item.filename)}
+            </div>
+            ${item.categoryId ? `<span class="category-count" style="font-size: 0.6rem; opacity: 1;">${categories.find(c=>c.id===item.categoryId)?.name || ''}</span>` : ''}
+        </div>
+    `).join('');
+}
+
+window.toggleQueueItem = (id) => {
+    const item = importQueue.find(i => i.id === id);
+    if (item) {
+        item.selected = !item.selected;
+        renderImportQueue();
+        updateBulkUI();
+    }
+};
+
+importSelectAllBtn.onclick = () => {
+    const allSelected = importQueue.every(i => i.selected);
+    importQueue.forEach(i => i.selected = !allSelected);
+    renderImportQueue();
+    updateBulkUI();
+};
+
+function updateBulkUI() {
+    const selected = importQueue.filter(i => i.selected);
+    if (selected.length === 1 && selected[0].mode === 'url' && selected[0].thumbnail) {
+        importPreviewThumb.src = selected[0].thumbnail;
+        importPreviewContainer.style.display = 'block';
+    } else {
+        importPreviewContainer.style.display = 'none';
+    }
+    
+    if (selected.length === 1) {
+        importFilenameInput.value = selected[0].filename;
+        importSingleFields.style.display = 'block';
+    } else {
+        importSingleFields.style.display = 'none';
+    }
+
+    renderImportCategories();
+    renderImportTags();
+}
+
 function renderImportCategories() {
+    const selected = importQueue.filter(i => i.selected);
+    const firstCatId = selected.length > 0 ? selected[0].categoryId : null;
+
     importCategoryGrid.innerHTML = categories.map(cat => `
-        <button class="btn btn-outline btn-small ${importSelectedCategoryId === cat.id ? 'active' : ''}" 
+        <button class="btn btn-outline btn-small ${firstCatId === cat.id ? 'active' : ''}" 
                 onclick="selectImportCategory(${cat.id})">
             ${escapeHTML(cat.name)}
         </button>
@@ -842,20 +959,22 @@ function renderImportCategories() {
 }
 
 window.selectImportCategory = (id) => {
-    importSelectedCategoryId = id;
+    importQueue.filter(i => i.selected).forEach(i => i.categoryId = id);
+    renderImportQueue();
     renderImportCategories();
 };
 
 function renderImportTags() {
-    // Current tags from system
+    const selected = importQueue.filter(i => i.selected);
+    const activeTags = selected.length > 0 ? selected[0].tags : new Set();
+
     importTagsList.innerHTML = allTags.map(tag => `
-        <span class="tag-chip ${importSelectedTags.has(tag) ? 'selected' : ''}" onclick="toggleImportTag('${tag.replace(/'/g, "\\'")}')">
+        <span class="tag-chip ${activeTags.has(tag) ? 'selected' : ''}" onclick="toggleImportTag('${tag.replace(/'/g, "\\'")}')">
             ${escapeHTML(tag)}
         </span>
     `).join('');
     
-    // Selected tags display (with remove button)
-    importSelectedTagsDiv.innerHTML = Array.from(importSelectedTags).map(tag => `
+    importSelectedTagsDiv.innerHTML = Array.from(activeTags).map(tag => `
         <span class="tag-chip selected">
             ${escapeHTML(tag)} <span style="margin-left: 5px; cursor: pointer;" onclick="toggleImportTag('${tag.replace(/'/g, "\\'")}')">&times;</span>
         </span>
@@ -863,8 +982,10 @@ function renderImportTags() {
 }
 
 window.toggleImportTag = (tag) => {
-    if (importSelectedTags.has(tag)) importSelectedTags.delete(tag);
-    else importSelectedTags.add(tag);
+    importQueue.filter(i => i.selected).forEach(i => {
+        if (i.tags.has(tag)) i.tags.delete(tag);
+        else i.tags.add(tag);
+    });
     renderImportTags();
 };
 
@@ -872,7 +993,7 @@ importTagInput.onkeypress = (e) => {
     if (e.key === 'Enter') {
         const val = importTagInput.value.trim();
         if (val) {
-            importSelectedTags.add(val);
+            importQueue.filter(i => i.selected).forEach(i => i.tags.add(val));
             importTagInput.value = '';
             renderImportTags();
         }
@@ -882,76 +1003,65 @@ importTagInput.onkeypress = (e) => {
 closeImportBtn.onclick = () => importModal.classList.remove('active');
 
 importConfirmBtn.onclick = async () => {
+    const selected = importQueue.filter(i => i.selected);
+    if (selected.length === 1) {
+        selected[0].filename = importFilenameInput.value.trim();
+    }
+
     importConfirmBtn.disabled = true;
     importConfirmBtn.style.display = 'none';
     importProgress.style.display = 'block';
-    importProgressBar.style.width = '0%';
     
-    const tagsArr = Array.from(importSelectedTags);
-    
-    if (importMode === 'upload') {
-        for (let i = 0; i < importFiles.length; i++) {
-            const file = importFiles[i];
-            importStatusText.textContent = `Processing ${i+1}/${importFiles.length}: ${file.name}`;
-            
-            const thumbnailData = await generateThumbnail(file);
-            
+    for (let i = 0; i < importQueue.length; i++) {
+        const item = importQueue[i];
+        const tagsArr = Array.from(item.tags);
+        const pct = ((i) / importQueue.length) * 100;
+        importProgressBar.style.width = `${pct}%`;
+        importStatusText.textContent = `Importing ${i+1}/${importQueue.length}: ${item.filename}`;
+
+        if (item.mode === 'upload') {
+            const thumbnailData = await generateThumbnail(item.file);
             const formData = new FormData();
-            formData.append('file', file);
-            if (importFiles.length === 1) {
-                formData.append('filename', importFilenameInput.value);
-            }
+            formData.append('file', item.file);
+            formData.append('filename', item.filename);
             if (thumbnailData) formData.append('thumbnail', thumbnailData);
-            if (importSelectedCategoryId) formData.append('category_id', importSelectedCategoryId);
+            if (item.categoryId) formData.append('category_id', item.categoryId);
             if (tagsArr.length) formData.append('tags', JSON.stringify(tagsArr));
             
-            importStatusText.textContent = `Encrypting ${i+1}/${importFiles.length}: ${file.name}`;
-            
-            await new Promise((resolve, reject) => {
-                const xhr = new XMLHttpRequest();
-                xhr.open('POST', '/api/files');
-                xhr.upload.onprogress = (e) => {
-                    if (e.lengthComputable) {
-                        const pct = (e.loaded / e.total) * 100;
-                        importProgressBar.style.width = `${pct}%`;
-                    }
-                };
-                xhr.onload = () => xhr.status === 200 ? resolve() : reject(new Error('Upload failed'));
-                xhr.onerror = () => reject(new Error('Network error'));
-                xhr.send(formData);
-            });
-        }
-    } else {
-        importStatusText.textContent = 'Streaming from URL into Vault...';
-        importProgressBar.style.width = '50%';
-        try {
-            const res = await fetch('/api/import/url', {
-                method: 'POST',
-                headers: {'Content-Type': 'application/json'},
-                body: JSON.stringify({
-                    url: importUrl,
-                    filename: importFilenameInput.value,
-                    category_id: importSelectedCategoryId,
-                    tags: tagsArr
-                })
-            });
-            if (!res.ok) {
-                const data = await res.json();
-                throw new Error(data.detail || 'Download failed');
-            }
-        } catch (e) {
-            alert('Error: ' + e.message);
-            importConfirmBtn.disabled = false;
-            importConfirmBtn.style.display = 'block';
-            importProgress.style.display = 'none';
-            return;
+            try {
+                await new Promise((resolve, reject) => {
+                    const xhr = new XMLHttpRequest();
+                    xhr.open('POST', '/api/files');
+                    xhr.onload = () => xhr.status === 200 ? resolve() : reject(new Error('Upload failed'));
+                    xhr.onerror = () => reject(new Error('Network error'));
+                    xhr.send(formData);
+                });
+            } catch (e) { console.error(e); }
+        } else {
+            try {
+                const res = await fetch('/api/import/url', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({
+                        url: item.url,
+                        filename: item.filename,
+                        category_id: item.categoryId,
+                        tags: tagsArr
+                    })
+                });
+                if (!res.ok) throw new Error('Download failed');
+            } catch (e) { console.error(e); }
         }
     }
     
-    importModal.classList.remove('active');
-    fileInput.value = '';
-    document.getElementById('file-name-display').textContent = '';
-    await Promise.all([loadFiles(), loadCategories(), loadTags()]);
+    importProgressBar.style.width = '100%';
+    importStatusText.textContent = 'Complete!';
+    setTimeout(() => {
+        importModal.classList.remove('active');
+        fileInput.value = '';
+        document.getElementById('file-name-display').textContent = '';
+        Promise.all([loadFiles(), loadCategories(), loadTags()]);
+    }, 1000);
 };
 
 importUrlBtn.onclick = async () => {
