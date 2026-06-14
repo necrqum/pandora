@@ -1107,6 +1107,8 @@ importConfirmBtn.onclick = async () => {
                 });
             } catch (e) { console.error(e); }
         } else {
+            importStatusText.textContent = 'Step 1/2: Downloading & Merging from URL...';
+            importProgressBar.style.width = '30%';
             try {
                 const res = await fetch('/api/import/url', {
                     method: 'POST',
@@ -1118,7 +1120,11 @@ importConfirmBtn.onclick = async () => {
                         tags: tagsArr
                     })
                 });
-                if (!res.ok) throw new Error('Download failed');
+                importProgressBar.style.width = '100%';
+                if (!res.ok) {
+                    const data = await res.json();
+                    throw new Error(data.detail || 'Download failed');
+                }
             } catch (e) { console.error(e); }
         }
     }

@@ -580,7 +580,8 @@ def import_url(req: URLImportRequest):
             state.logger.warning(f"Failed to download thumbnail from {meta['thumbnail_url']}: {e}")
     
     try:
-        file_id, total_size = state.vault.store_file(download_stream(req.url))
+        temp_dir = os.path.join(state.config_dir, "temp")
+        file_id, total_size = state.vault.store_file(download_stream(req.url, temp_dir))
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Download failed: {str(e)}")
     
