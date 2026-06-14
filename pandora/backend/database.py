@@ -46,6 +46,8 @@ class File(Base):
     thumbnail_data = Column(String, nullable=True) # Base64 encoded thumbnail
     added_at = Column(DateTime, default=datetime.utcnow) # When added to Pandora
     metadata_created_at = Column(DateTime, nullable=True) # From file metadata
+    is_favorite = Column(Integer, default=0) # 0 for False, 1 for True (SQLite compatible)
+    notes = Column(String, nullable=True) # Personal notes
     
     category = relationship("Category", back_populates="files")
     tags = relationship("Tag", secondary=file_tag_association, back_populates="files")
@@ -105,6 +107,12 @@ class DatabaseManager:
                 except OperationalError: pass
                 try:
                     conn.execute(text("ALTER TABLE files ADD COLUMN metadata_created_at DATETIME"))
+                except OperationalError: pass
+                try:
+                    conn.execute(text("ALTER TABLE files ADD COLUMN is_favorite INTEGER DEFAULT 0"))
+                except OperationalError: pass
+                try:
+                    conn.execute(text("ALTER TABLE files ADD COLUMN notes TEXT"))
                 except OperationalError: pass
         except OperationalError as exc:
             logger.error("Failed to initialize database schema: %s", exc)

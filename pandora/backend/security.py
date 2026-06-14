@@ -50,6 +50,9 @@ class VaultSecurity:
         if salt is None:
             self.salt = os.urandom(SALT_SIZE)
         else:
+            if not isinstance(salt, bytes):
+                logger.error("VaultSecurity received invalid salt type: %s (value: %s)", type(salt), salt)
+                raise SecurityError(f"Salt must be bytes, got {type(salt)}")
             self.salt = salt
 
         try:

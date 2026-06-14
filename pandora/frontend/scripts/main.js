@@ -62,6 +62,9 @@ const secureConfirmBtn = document.getElementById('secure-confirm-btn');
 const playerModal = document.getElementById('player-modal');
 const videoPlayer = document.getElementById('video-player');
 const imageViewer = document.getElementById('image-viewer');
+const playerFilename = document.getElementById('player-filename');
+const playerNotes = document.getElementById('player-notes');
+const saveNotesBtn = document.getElementById('save-notes-btn');
 const closeModal = document.getElementById('close-modal');
 const panicBtn = document.getElementById('panic-btn');
 
@@ -125,6 +128,7 @@ let currentTagFilter = null;
 let currentPage = 1;
 let categories = [];
 let allTags = [];
+let loadedFiles = [];
 let searchTimeout = null;
 let selectedFileIds = new Set();
 let isSelectionMode = false;
@@ -256,6 +260,10 @@ function renderCategoryList() {
             <span>All Files</span>
             <span class="category-count">${categoryData.total}</span>
         </li>
+        <li data-id="favorites" class="${currentCategoryId === 'favorites' ? 'active' : ''}">
+            <span>⭐ Favorites</span>
+            <span class="category-count">${categoryData.favorites || '0'}</span>
+        </li>
         <li data-id="uncategorized" class="${currentCategoryId === 'uncategorized' ? 'active' : ''}">
             <span>Uncategorized</span>
             <span class="category-count">${categoryData.uncategorized}</span>
@@ -353,6 +361,20 @@ function renderCategoryList() {
         loadFiles();
         if (window.innerWidth <= 768) sidebar.classList.remove('active');
     };
+
+    const favLi = categoryList.querySelector('[data-id="favorites"]');
+    if (favLi) {
+        favLi.onclick = () => {
+            currentCategoryId = 'favorites';
+            currentTagFilter = null;
+            currentPage = 1;
+            document.getElementById('current-category-title').textContent = 'Favorites';
+            renderCategoryList();
+            renderSidebarTags();
+            loadFiles();
+            if (window.innerWidth <= 768) sidebar.classList.remove('active');
+        };
+    }
 }
 
 async function loadTags() {
@@ -424,8 +446,11 @@ function formatDuration(seconds) {
 async function loadFiles() {
     try {
         let url = '/api/files?';
-        if (currentCategoryId !== 'all' && currentCategoryId !== 'uncategorized') {
+        if (currentCategoryId !== 'all' && currentCategoryId !== 'uncategorized' && currentCategoryId !== 'favorites') {
             url += `category_id=${currentCategoryId}&`;
+        }
+        if (currentCategoryId === 'favorites') {
+            url += `favorite=true&`;
         }
         let q = searchInput.value.trim();
         if (currentTagFilter) {
@@ -442,6 +467,7 @@ async function loadFiles() {
         if (res.status === 401) { lockVault(); return; }
         const data = await res.json();
         let files = data.results;
+        loadedFiles = files; // Store globally for player access
         
         if (currentCategoryId === 'uncategorized') files = files.filter(f => f.category_id === null);
         
@@ -450,7 +476,7 @@ async function loadFiles() {
 
         // Update result count display
         const resultCountSpan = document.getElementById('search-result-count');
-        if (q || currentTagFilter || (currentCategoryId !== 'all' && currentCategoryId !== 'uncategorized')) {
+        if (q || currentTagFilter || (currentCategoryId !== 'all' && currentCategoryId !== 'uncategorized' && currentCategoryId !== 'favorites')) {
             resultCountSpan.textContent = `${data.total} files found`;
         } else {
             resultCountSpan.textContent = '';
@@ -477,7 +503,8 @@ async function loadFiles() {
                 `<div class="tag-container">${f.tags.map(t => `<span class="tag-badge">${t}</span>`).join('')}</div>` : '';
 
             card.innerHTML = `
-                <div class="card-menu" onclick="event.stopPropagation()">
+                <div class="card-top-actions" onclick="event.stopPropagation()">
+                    <button class="fav-btn ${f.is_favorite ? 'active' : ''}" data-id="${f.id}" title="Toggle Favorite">⭐</button>
                     <button class="menu-btn" onclick="toggleMenu('${f.id}')">⋮</button>
                     <div class="menu-dropdown" id="menu-${f.id}">
                         <div class="menu-item-rename" data-id="${f.id}">Rename</div>
@@ -495,7 +522,11 @@ async function loadFiles() {
                 ${tagsHTML}
             `;
             
-            // Professional event listeners instead of onclick strings to avoid quoting bugs
+            // Event listeners
+            card.querySelector('.fav-btn').onclick = (e) => {
+                e.stopPropagation();
+                toggleFavorite(f.id);
+            };
             card.querySelector('.menu-item-rename').onclick = () => window.renameFile(f.id, f.filename);
             card.querySelector('.menu-item-tags').onclick = () => window.manageTags(f.id, f.tags.join(', '));
             card.querySelector('.menu-item-delete').onclick = () => window.deleteFile(f.id);
@@ -1168,6 +1199,29 @@ fileInput.onchange = () => {
 };
 
 function playFile(id, filename) {
+    const file = loadedFiles.find(f => f.id === id);
+    playerFilename.textContent = filename;
+    playerNotes.value = file ? (file.notes || '') : '';
+    
+    saveNotesBtn.onclick = async () => {
+        const notes = playerNotes.value;
+        saveNotesBtn.disabled = true;
+        saveNotesBtn.textContent = 'Saving...';
+        try {
+            const res = await fetch(`/api/files/${id}/notes`, {
+                method: 'PUT',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({notes})
+            });
+            if (res.ok) {
+                if (file) file.notes = notes;
+                alert('Notes saved!');
+            }
+        } catch (e) { console.error(e); }
+        saveNotesBtn.disabled = false;
+        saveNotesBtn.textContent = 'Save Notes';
+    };
+
     if (isImage(filename)) {
         videoPlayer.style.display = 'none'; videoPlayer.pause(); videoPlayer.src = '';
         imageViewer.style.display = 'block'; imageViewer.src = `/api/files/${id}`;
@@ -1204,6 +1258,17 @@ document.addEventListener('keydown', e => {
 
 window.toggleMenu = (id) => document.getElementById(`menu-${id}`).classList.toggle('active');
 document.onclick = () => document.querySelectorAll('.menu-dropdown.active').forEach(el => el.classList.remove('active'));
+
+window.toggleFavorite = async (id) => {
+    try {
+        const res = await fetch(`/api/files/${id}/favorite`, { method: 'POST' });
+        if (res.ok) {
+            const data = await res.json();
+            const btn = document.querySelector(`.media-card[data-id="${id}"] .fav-btn`);
+            if (btn) btn.classList.toggle('active', data.is_favorite);
+        }
+    } catch (e) { console.error(e); }
+};
 
 window.renameFile = async (id, oldName) => {
     openRenameModal('Rename File', oldName, async (newName) => {

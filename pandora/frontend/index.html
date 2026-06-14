@@ -94,6 +94,7 @@
                     <h3>Categories</h3>
                     <ul id="category-list">
                         <li data-id="all" class="active">All Files</li>
+                        <li data-id="favorites">⭐ Favorites</li>
                         <li data-id="uncategorized">Uncategorized</li>
                     </ul>
                     <div class="add-category">
@@ -288,10 +289,25 @@
 
         <!-- Media Player Modal -->
         <div id="player-modal" class="modal">
-            <div class="modal-content">
+            <div class="modal-content" style="max-width: 95vw; flex-direction: row; gap: 2rem;">
                 <span class="close-btn" id="close-modal">&times;</span>
-                <video id="video-player" controls autoplay style="display: none;"></video>
-                <img id="image-viewer" style="display: none; max-width: 100%; height: auto; margin: auto; display: block;" />
+                
+                <!-- LEFT: Media View -->
+                <div style="flex: 3; display: flex; align-items: center; justify-content: center; background: #000; border-radius: 12px; overflow: hidden; position: relative; min-height: 400px;">
+                    <video id="video-player" controls autoplay style="display: none; width: 100%; max-height: 85vh;"></video>
+                    <img id="image-viewer" style="display: none; max-width: 100%; max-height: 85vh; object-fit: contain;" />
+                </div>
+
+                <!-- RIGHT: Info Pane -->
+                <div id="player-info-pane" style="flex: 1; min-width: 300px; text-align: left; background: var(--card-bg); padding: 1.5rem; border-radius: 12px; border: 1px solid var(--glass-border); display: flex; flex-direction: column;">
+                    <h3 id="player-filename" style="font-size: 1.1rem; margin-bottom: 1.5rem; word-break: break-all; color: var(--accent);"></h3>
+                    
+                    <div style="flex: 1; display: flex; flex-direction: column;">
+                        <label style="font-size: 0.75rem; text-transform: uppercase; letter-spacing: 1px; opacity: 0.6; margin-bottom: 0.5rem;">Notes</label>
+                        <textarea id="player-notes" placeholder="Add some notes about this file..." style="flex: 1; background: #000; border: 1px solid var(--glass-border); border-radius: 6px; color: var(--text-primary); padding: 0.75rem; font-family: inherit; resize: none; font-size: 0.9rem; margin-bottom: 1.5rem; min-height: 200px;"></textarea>
+                        <button id="save-notes-btn" class="btn btn-small w-full">Save Notes</button>
+                    </div>
+                </div>
             </div>
         </div>
 

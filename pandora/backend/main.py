@@ -223,6 +223,9 @@ class FileCategoryUpdate(BaseModel):
 class FileRenameRequest(BaseModel):
     filename: str
 
+class FileNotesRequest(BaseModel):
+    notes: str
+
 class URLImportRequest(BaseModel):
     url: str
     filename: Optional[str] = None
@@ -713,6 +716,7 @@ def upload_file(
 @app.get("/api/files", dependencies=[Depends(require_unlocked)])
 def list_files(
     category_id: Optional[int] = None, 
+    favorite: Optional[bool] = None,
     q: Optional[str] = None,
     sort_by: str = "date",
     sort_dir: str = "desc",
@@ -725,6 +729,9 @@ def list_files(
         
         if category_id is not None:
             query = query.filter(DBFile.category_id == category_id)
+
+        if favorite is True:
+            query = query.filter(DBFile.is_favorite == 1)
             
         if q:
             criteria = SearchParser.parse(q)
@@ -737,6 +744,13 @@ def list_files(
                     else:
                         q_obj = q_obj.filter(field_attr.ilike(f"%{term}%"))
                 return q_obj
+
+            # Support favorite:true in search string
+            for term in criteria['any']['include']:
+                if term.lower() == "favorite:true":
+                    query = query.filter(DBFile.is_favorite == 1)
+                elif term.lower() == "favorite:false":
+                    query = query.filter(DBFile.is_favorite == 0)
 
             # Filter by name
             query = apply_filter(query, DBFile.filename, criteria['name']['include'])
@@ -808,6 +822,8 @@ def list_files(
                     "size": f.size,
                     "added_at": f.added_at.isoformat() if f.added_at else None,
                     "created_at": f.metadata_created_at.isoformat() if f.metadata_created_at else None,
+                    "is_favorite": bool(f.is_favorite),
+                    "notes": f.notes,
                     "tags": [t.name for t in f.tags if t]
                 } for f in files
             ],
@@ -914,6 +930,7 @@ def list_categories():
         categories = session.query(DBCategory).all()
         total_files = session.query(func.count(DBFile.id)).scalar()
         uncategorized_count = count_map.get(None, 0)
+        favorites_count = session.query(func.count(DBFile.id)).filter(DBFile.is_favorite == 1).scalar()
 
         return {
             "categories": [
@@ -921,7 +938,8 @@ def list_categories():
                 for c in categories if c
             ],
             "total": total_files,
-            "uncategorized": uncategorized_count
+            "uncategorized": uncategorized_count,
+            "favorites": favorites_count
         }
 
 @app.put("/api/categories/{cat_id}", dependencies=[Depends(require_unlocked)])
@@ -968,6 +986,22 @@ def update_file_category(file_id: str, update: FileCategoryUpdate):
         db_file = session.query(DBFile).filter(DBFile.id == file_id).first()
         if not db_file: raise HTTPException(status_code=404, detail="File not found")
         db_file.category_id = cat_id
+    return {"status": "ok"}
+
+@app.post("/api/files/{file_id}/favorite", dependencies=[Depends(require_unlocked)])
+def toggle_favorite(file_id: str):
+    with state.db.session_scope() as session:
+        db_file = session.query(DBFile).filter(DBFile.id == file_id).first()
+        if not db_file: raise HTTPException(status_code=404, detail="File not found")
+        db_file.is_favorite = 0 if db_file.is_favorite else 1
+        return {"status": "ok", "is_favorite": bool(db_file.is_favorite)}
+
+@app.put("/api/files/{file_id}/notes", dependencies=[Depends(require_unlocked)])
+def update_notes(file_id: str, req: FileNotesRequest):
+    with state.db.session_scope() as session:
+        db_file = session.query(DBFile).filter(DBFile.id == file_id).first()
+        if not db_file: raise HTTPException(status_code=404, detail="File not found")
+        db_file.notes = req.notes
     return {"status": "ok"}
 
 @app.put("/api/files/{file_id}/rename", dependencies=[Depends(require_unlocked)])

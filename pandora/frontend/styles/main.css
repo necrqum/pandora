@@ -650,11 +650,43 @@ li.active .category-count {
     border-radius: 8px;
 }
 
-.card-menu {
+.card-top-actions {
     position: absolute;
     top: 10px;
+    left: 10px;
     right: 10px;
-    z-index: 5;
+    display: flex;
+    justify-content: space-between;
+    z-index: 10;
+}
+
+.fav-btn {
+    background: rgba(0, 0, 0, 0.4);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    color: rgba(255, 255, 255, 0.5);
+    border-radius: 50%;
+    width: 32px;
+    height: 32px;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: all 0.2s;
+    font-size: 0.9rem;
+    backdrop-filter: blur(4px);
+}
+
+.fav-btn:hover {
+    background: rgba(0, 0, 0, 0.6);
+    color: #ffd700;
+    border-color: #ffd700;
+}
+
+.fav-btn.active {
+    color: #ffd700;
+    opacity: 1;
+    background: rgba(0, 0, 0, 0.6);
+    border-color: #ffd700;
 }
 
 .menu-btn {
