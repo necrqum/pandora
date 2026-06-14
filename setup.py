@@ -2,7 +2,7 @@ from setuptools import setup, find_packages
 
 setup(
     name="pandora",
-    version="0.2.2",
+    version="0.2.3",
     description="A self-hosted, fully encrypted media organizer web app.",
     author="Necrqum",
     packages=find_packages(),
