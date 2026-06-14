@@ -528,10 +528,9 @@ def export_vault(req: ExportRequest):
             def sanitize(s): return "".join([c for c in s if c.isalnum() or c in (' ', '_', '-')]).strip()
             
             clean_cat = sanitize(cat_name)
-            # Create a path based on tags: Category/Tag1/Tag2/.../File
-            # We sort tags alphabetically for deterministic folder structure
-            sorted_tags = sorted([sanitize(t.name) for t in f.tags if t])
-            tag_path = os.path.join(*sorted_tags) if sorted_tags else ""
+            # Use tag order defined by 'position' column (already handled by relationship order_by)
+            tag_names = [sanitize(t.name) for t in f.tags if t]
+            tag_path = os.path.join(*tag_names) if tag_names else ""
             
             dest_dir = os.path.join(target, clean_cat, tag_path)
             os.makedirs(dest_dir, exist_ok=True)
@@ -713,6 +712,38 @@ def upload_file(
                     remaining -= write_size
             os.remove(temp_path)
 
+@app.get("/api/browse/folders", dependencies=[Depends(require_unlocked)])
+def browse_folders():
+    from .database import Category as DBCategory, Tag as DBTag
+    with state.db.session_scope() as session:
+        files = session.query(DBFile).all()
+        root = {"name": "Root", "type": "folder", "children": {}}
+        
+        for f in files:
+            cat_name = f.category.name if f.category else "Uncategorized"
+            if cat_name not in root["children"]:
+                root["children"][cat_name] = {"name": cat_name, "type": "folder", "children": {}, "files": []}
+            
+            curr = root["children"][cat_name]
+            # Navigate/Build tag path
+            for t in f.tags:
+                if not t: continue
+                if t.name not in curr["children"]:
+                    curr["children"][t.name] = {"name": t.name, "type": "folder", "children": {}, "files": []}
+                curr = curr["children"][t.name]
+            
+            # Add file to the leaf node
+            if "files" not in curr: curr["files"] = []
+            curr["files"].append({
+                "id": f.id,
+                "filename": f.filename,
+                "thumbnail_data": f.thumbnail_data,
+                "duration": f.duration,
+                "is_favorite": bool(f.is_favorite)
+            })
+            
+        return root
+
 @app.get("/api/files", dependencies=[Depends(require_unlocked)])
 def list_files(
     category_id: Optional[int] = None, 
@@ -834,12 +865,14 @@ def list_files(
 
 @app.post("/api/files/{file_id}/tags", dependencies=[Depends(require_unlocked)])
 def update_file_tags(file_id: str, req: UpdateTagsRequest):
-    from .database import Tag as DBTag
+    from .database import Tag as DBTag, file_tag_association
+    from sqlalchemy import delete, insert
     with state.db.session_scope() as session:
         db_file = session.query(DBFile).filter(DBFile.id == file_id).first()
         if not db_file: raise HTTPException(status_code=404, detail="File not found")
         
-        new_tags = []
+        # Pre-load or create tags to get their IDs
+        tag_objs = []
         for tag_name in req.tags:
             tag_name = tag_name.strip()
             if not tag_name: continue
@@ -848,10 +881,18 @@ def update_file_tags(file_id: str, req: UpdateTagsRequest):
                 tag = DBTag(name=tag_name)
                 session.add(tag)
                 session.flush()
-            new_tags.append(tag)
+            tag_objs.append(tag)
         
-        db_file.tags = new_tags
-        return {"status": "ok", "tags": [t.name for t in db_file.tags if t]}
+        # Manually manage association to store 'position'
+        session.execute(delete(file_tag_association).where(file_tag_association.c.file_id == file_id))
+        for i, tag in enumerate(tag_objs):
+            session.execute(insert(file_tag_association).values(
+                file_id=file_id, 
+                tag_id=tag.id, 
+                position=i
+            ))
+            
+    return {"status": "ok"}
 
 @app.put("/api/tags/{old_name}", dependencies=[Depends(require_unlocked)])
 def rename_tag(old_name: str, req: TagCreate):

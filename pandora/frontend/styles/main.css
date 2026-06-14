@@ -359,12 +359,20 @@ li.active .category-count {
     .mobile-only { display: flex; }
     
     .modal {
-        padding: 1rem;
+        padding: 0;
     }
     
-    .login-container {
+    .modal-inner {
+        padding: 1.5rem;
+        max-width: 100%;
+        height: 100%;
+        max-height: 100vh;
+        border-radius: 0;
+    }
+
+    .modal-content {
         width: 100%;
-        margin: 0;
+        max-height: 100vh;
     }
 
     .sidebar {
@@ -372,6 +380,7 @@ li.active .category-count {
         left: -280px;
         top: 64px;
         bottom: 0;
+        width: 280px;
         z-index: 50;
         transition: left 0.3s ease;
         background: var(--sidebar-bg);
@@ -391,13 +400,45 @@ li.active .category-count {
         padding: 1.5rem 1rem 0.5rem;
     }
     
-    .search-input {
+    .search-input, .search-input:focus {
         width: 100%;
     }
-    
-    .search-input:focus {
-        width: 100%;
+
+    /* Stack grid on small screens */
+    .import-grid {
+        grid-template-columns: 1fr;
     }
+    .import-left {
+        border-right: none;
+        border-bottom: 1px solid var(--glass-border);
+        padding-right: 0;
+        padding-bottom: 1rem;
+        margin-bottom: 1rem;
+    }
+    #import-queue-list {
+        max-height: 120px !important;
+    }
+
+    /* Player info pane below video on mobile */
+    .player-content {
+        flex-direction: column;
+        height: 100vh;
+        max-height: 100vh;
+        gap: 1rem;
+    }
+    .player-main {
+        flex: none;
+        height: auto;
+        aspect-ratio: 16/9;
+        min-height: auto;
+    }
+    .player-info {
+        flex: 1;
+        min-width: 0;
+        border-radius: 12px 12px 0 0;
+        padding-bottom: 4rem;
+    }
+}
     
     .selection-bar {
         flex-direction: column;
@@ -481,10 +522,60 @@ li.active .category-count {
     color: var(--accent);
 }
 
-.btn-xs {
-    padding: 2px 6px;
-    font-size: 0.7rem;
+.btn-xs.active {
+    background: var(--accent);
+    color: white;
+    opacity: 1;
 }
+
+/* Folder Explorer */
+.folder-explorer {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+}
+
+.folder-row {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    padding: 0.75rem 1rem;
+    background: rgba(255,255,255,0.03);
+    border: 1px solid var(--glass-border);
+    border-radius: 8px;
+    cursor: pointer;
+    transition: all 0.2s;
+}
+
+.folder-row:hover {
+    background: rgba(255,255,255,0.06);
+    border-color: var(--accent);
+}
+
+.folder-row .icon { font-size: 1.2rem; }
+.folder-row .name { flex: 1; font-weight: 500; }
+.folder-row .count { font-size: 0.75rem; opacity: 0.5; }
+
+.folder-breadcrumb {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    margin-bottom: 1.5rem;
+    font-size: 0.9rem;
+}
+
+.breadcrumb-item {
+    color: var(--accent);
+    cursor: pointer;
+}
+
+.breadcrumb-item:hover { text-decoration: underline; }
+.breadcrumb-sep { opacity: 0.4; }
+
+/* Custom Scrollbar for Info Pane */
+#player-info-pane::-webkit-scrollbar { width: 6px; }
+#player-info-pane::-webkit-scrollbar-track { background: transparent; }
+#player-info-pane::-webkit-scrollbar-thumb { background: var(--glass-border); border-radius: 3px; }
 
 .selection-bar {
     position: fixed;

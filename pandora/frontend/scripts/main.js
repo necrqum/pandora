@@ -64,6 +64,7 @@ const videoPlayer = document.getElementById('video-player');
 const imageViewer = document.getElementById('image-viewer');
 const playerFilename = document.getElementById('player-filename');
 const playerNotes = document.getElementById('player-notes');
+const playerTagsList = document.getElementById('player-tags-list');
 const saveNotesBtn = document.getElementById('save-notes-btn');
 const closeModal = document.getElementById('close-modal');
 const panicBtn = document.getElementById('panic-btn');
@@ -79,6 +80,9 @@ const newCategoryInput = document.getElementById('new-category-name');
 const addCategoryBtn = document.getElementById('add-category-btn');
 const searchInput = document.getElementById('search-input');
 const sortSelect = document.getElementById('sort-select');
+const viewGridBtn = document.getElementById('view-grid-btn');
+const viewFolderBtn = document.getElementById('view-folder-btn');
+const folderExplorer = document.getElementById('folder-explorer');
 const paginationControls = document.getElementById('pagination-controls');
 
 const sidebar = document.getElementById('sidebar');
@@ -442,6 +446,87 @@ function formatDuration(seconds) {
     if (h > 0) return `${h}:${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
     return `${m}:${s.toString().padStart(2, '0')}`;
 }
+
+// --- View Management ---
+let currentView = 'grid'; // 'grid' or 'folder'
+let folderPath = []; // Breadcrumbs: ["Category", "Tag1", ...]
+let folderData = null; // Nested tree from API
+
+viewGridBtn.onclick = () => {
+    currentView = 'grid';
+    viewGridBtn.classList.add('active');
+    viewFolderBtn.classList.remove('active');
+    galleryGrid.style.display = 'grid';
+    folderExplorer.style.display = 'none';
+    paginationControls.style.display = 'flex';
+    loadFiles();
+};
+
+viewFolderBtn.onclick = async () => {
+    currentView = 'folder';
+    viewFolderBtn.classList.add('active');
+    viewGridBtn.classList.remove('active');
+    galleryGrid.style.display = 'none';
+    folderExplorer.style.display = 'block';
+    paginationControls.style.display = 'none';
+    folderPath = [];
+    await loadFolderHierarchy();
+};
+
+async function loadFolderHierarchy() {
+    try {
+        const res = await fetch('/api/browse/folders');
+        if (res.ok) {
+            folderData = await res.json();
+            renderFolderExplorer();
+        }
+    } catch (e) { console.error(e); }
+}
+
+function renderFolderExplorer() {
+    let curr = folderData;
+    // Traverse to current path
+    for (const p of folderPath) {
+        if (curr.children[p]) curr = curr.children[p];
+    }
+
+    const breadcrumbsHTML = `
+        <div class="folder-breadcrumb">
+            <span class="breadcrumb-item" onclick="navigateToPath([])">Root</span>
+            ${folderPath.map((p, i) => `
+                <span class="breadcrumb-sep">/</span>
+                <span class="breadcrumb-item" onclick="navigateToPath(${JSON.stringify(folderPath.slice(0, i + 1))})">${escapeHTML(p)}</span>
+            `).join('')}
+        </div>
+    `;
+
+    const children = Object.values(curr.children || {});
+    const files = curr.files || [];
+
+    const listHTML = [
+        ...children.map(c => `
+            <div class="folder-row" onclick="navigateToPath(${JSON.stringify([...folderPath, c.name])})">
+                <span class="icon">📁</span>
+                <span class="name">${escapeHTML(c.name)}</span>
+                <span class="count">${Object.keys(c.children || {}).length} items</span>
+            </div>
+        `),
+        ...files.map(f => `
+            <div class="folder-row" onclick="playFile('${f.id}', '${f.filename.replace(/'/g, "\\'")}')">
+                <span class="icon">${isImage(f.filename) ? '🖼️' : '🎬'}</span>
+                <span class="name">${escapeHTML(f.filename)}</span>
+                <span class="count">${f.is_favorite ? '⭐' : ''}</span>
+            </div>
+        `)
+    ].join('');
+
+    folderExplorer.innerHTML = breadcrumbsHTML + (listHTML || '<div style="opacity:0.5; padding: 2rem;">Folder is empty</div>');
+}
+
+window.navigateToPath = (path) => {
+    folderPath = path;
+    renderFolderExplorer();
+};
 
 async function loadFiles() {
     try {
@@ -1202,26 +1287,59 @@ function playFile(id, filename) {
     const file = loadedFiles.find(f => f.id === id);
     playerFilename.textContent = filename;
     playerNotes.value = file ? (file.notes || '') : '';
-    
+    let tempTags = file ? [...file.tags] : [];
+
+    function renderPlayerTags() {
+        playerTagsList.innerHTML = tempTags.map((t, i) => `
+            <div class="folder-row" style="padding: 0.4rem 0.75rem; background: rgba(255,255,255,0.05);">
+                <span style="flex: 1; font-size: 0.85rem;">${escapeHTML(t)}</span>
+                <div style="display: flex; gap: 4px;">
+                    <button class="btn btn-outline btn-xs" onclick="moveTag(${i}, -1)" ${i === 0 ? 'disabled' : ''}>↑</button>
+                    <button class="btn btn-outline btn-xs" onclick="moveTag(${i}, 1)" ${i === tempTags.length - 1 ? 'disabled' : ''}>↓</button>
+                </div>
+            </div>
+        `).join('');
+    }
+
+    window.moveTag = (idx, dir) => {
+        const target = idx + dir;
+        if (target < 0 || target >= tempTags.length) return;
+        const arr = [...tempTags];
+        [arr[idx], arr[target]] = [arr[target], arr[idx]];
+        tempTags = arr;
+        renderPlayerTags();
+    };
+
     saveNotesBtn.onclick = async () => {
         const notes = playerNotes.value;
         saveNotesBtn.disabled = true;
         saveNotesBtn.textContent = 'Saving...';
         try {
-            const res = await fetch(`/api/files/${id}/notes`, {
+            // Save Notes
+            await fetch(`/api/files/${id}/notes`, {
                 method: 'PUT',
                 headers: {'Content-Type': 'application/json'},
                 body: JSON.stringify({notes})
             });
-            if (res.ok) {
-                if (file) file.notes = notes;
-                alert('Notes saved!');
+            // Save Ordered Tags
+            await fetch(`/api/files/${id}/tags`, {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({tags: tempTags})
+            });
+            
+            if (file) {
+                file.notes = notes;
+                file.tags = tempTags;
             }
+            alert('Metadata saved!');
+            loadFiles(); // Refresh gallery to show new tag order
         } catch (e) { console.error(e); }
         saveNotesBtn.disabled = false;
-        saveNotesBtn.textContent = 'Save Notes';
+        saveNotesBtn.textContent = 'Save Metadata';
     };
 
+    renderPlayerTags();
     if (isImage(filename)) {
         videoPlayer.style.display = 'none'; videoPlayer.pause(); videoPlayer.src = '';
         imageViewer.style.display = 'block'; imageViewer.src = `/api/files/${id}`;

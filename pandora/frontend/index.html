@@ -109,6 +109,10 @@
                     <div style="display: flex; align-items: center; gap: 1rem;">
                         <h2 id="current-category-title">Vault Contents</h2>
                         <span id="search-result-count" style="font-size: 0.85rem; opacity: 0.6; margin-top: 0.3rem;"></span>
+                        <div class="view-switcher" style="display: flex; background: rgba(255,255,255,0.05); border-radius: 8px; padding: 2px;">
+                            <button id="view-grid-btn" class="btn btn-xs active" title="Grid View">Grid</button>
+                            <button id="view-folder-btn" class="btn btn-xs" title="Folder View">Folder</button>
+                        </div>
                         <select id="sort-select" class="search-input" style="width: auto; margin-bottom: 0;">
                             <option value="date:desc">Date Added (Newest)</option>
                             <option value="date:asc">Date Added (Oldest)</option>
@@ -126,6 +130,9 @@
                 </div>
                 <div id="gallery-grid" class="grid">
                     <!-- Files will be injected here -->
+                </div>
+                <div id="folder-explorer" class="folder-explorer" style="display: none; padding: 1rem;">
+                    <!-- Hierarchy will be injected here -->
                 </div>
                 <div id="pagination-controls" class="pagination" style="display: flex; justify-content: center; gap: 0.5rem; padding: 2rem;">
                     <!-- Pagination buttons will be injected here -->
@@ -214,9 +221,9 @@
                 <span class="close-btn" id="close-import" style="top: 10px; right: 20px;">&times;</span>
                 <h2 id="import-modal-title" class="login-title" style="font-size: 1.5rem; margin-bottom: 1.5rem;">Import Queue</h2>
                 
-                <div style="display: grid; grid-template-columns: 300px 1fr; gap: 1.5rem; text-align: left;">
+                <div class="import-grid">
                     <!-- LEFT: Queue List -->
-                    <div style="border-right: 1px solid var(--border-color); padding-right: 1.5rem;">
+                    <div class="import-left">
                         <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.5rem;">
                             <label style="font-size: 0.85rem; opacity: 0.7;">Files (<span id="import-queue-count">0</span>)</label>
                             <button id="import-select-all" class="btn btn-outline btn-xs">Select All</button>
@@ -289,23 +296,28 @@
 
         <!-- Media Player Modal -->
         <div id="player-modal" class="modal">
-            <div class="modal-content" style="max-width: 95vw; flex-direction: row; gap: 2rem;">
+            <div class="player-content">
                 <span class="close-btn" id="close-modal">&times;</span>
                 
                 <!-- LEFT: Media View -->
-                <div style="flex: 3; display: flex; align-items: center; justify-content: center; background: #000; border-radius: 12px; overflow: hidden; position: relative; min-height: 400px;">
+                <div class="player-main">
                     <video id="video-player" controls autoplay style="display: none; width: 100%; max-height: 85vh;"></video>
                     <img id="image-viewer" style="display: none; max-width: 100%; max-height: 85vh; object-fit: contain;" />
                 </div>
 
                 <!-- RIGHT: Info Pane -->
-                <div id="player-info-pane" style="flex: 1; min-width: 300px; text-align: left; background: var(--card-bg); padding: 1.5rem; border-radius: 12px; border: 1px solid var(--glass-border); display: flex; flex-direction: column;">
+                <div id="player-info-pane" class="player-info">
                     <h3 id="player-filename" style="font-size: 1.1rem; margin-bottom: 1.5rem; word-break: break-all; color: var(--accent);"></h3>
                     
                     <div style="flex: 1; display: flex; flex-direction: column;">
+                        <label style="font-size: 0.75rem; text-transform: uppercase; letter-spacing: 1px; opacity: 0.6; margin-bottom: 0.5rem;">Tag Hierarchy (Folder Order)</label>
+                        <div id="player-tags-list" style="margin-bottom: 1.5rem; display: flex; flex-direction: column; gap: 0.25rem;">
+                            <!-- Tags with Up/Down buttons -->
+                        </div>
+
                         <label style="font-size: 0.75rem; text-transform: uppercase; letter-spacing: 1px; opacity: 0.6; margin-bottom: 0.5rem;">Notes</label>
-                        <textarea id="player-notes" placeholder="Add some notes about this file..." style="flex: 1; background: #000; border: 1px solid var(--glass-border); border-radius: 6px; color: var(--text-primary); padding: 0.75rem; font-family: inherit; resize: none; font-size: 0.9rem; margin-bottom: 1.5rem; min-height: 200px;"></textarea>
-                        <button id="save-notes-btn" class="btn btn-small w-full">Save Notes</button>
+                        <textarea id="player-notes" placeholder="Add some notes about this file..." style="flex: 1; background: #000; border: 1px solid var(--glass-border); border-radius: 6px; color: var(--text-primary); padding: 0.75rem; font-family: inherit; resize: none; font-size: 0.9rem; margin-bottom: 1.5rem; min-height: 150px;"></textarea>
+                        <button id="save-notes-btn" class="btn btn-small w-full">Save Metadata</button>
                     </div>
                 </div>
             </div>

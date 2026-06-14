@@ -14,12 +14,13 @@ logger = logging.getLogger("pandora.database")
 
 Base = declarative_base()
 
-# Many-to-many association table for files and tags
+# Many-to-many association table for files and tags with ordering support
 file_tag_association = Table(
     'file_tag',
     Base.metadata,
     Column('file_id', String, ForeignKey('files.id')),
-    Column('tag_id', Integer, ForeignKey('tags.id'))
+    Column('tag_id', Integer, ForeignKey('tags.id')),
+    Column('position', Integer, default=0) # Controls tag hierarchy/order
 )
 
 class Category(Base):
@@ -50,7 +51,12 @@ class File(Base):
     notes = Column(String, nullable=True) # Personal notes
     
     category = relationship("Category", back_populates="files")
-    tags = relationship("Tag", secondary=file_tag_association, back_populates="files")
+    tags = relationship(
+        "Tag", 
+        secondary=file_tag_association, 
+        back_populates="files",
+        order_by="file_tag.c.position"
+    )
 
 class DatabaseManager:
     def __init__(self, db_path: str, password: str):
@@ -114,6 +120,9 @@ class DatabaseManager:
                 try:
                     conn.execute(text("ALTER TABLE files ADD COLUMN notes TEXT"))
                 except OperationalError: pass
+                try:
+                    conn.execute(text("ALTER TABLE file_tag ADD COLUMN position INTEGER DEFAULT 0"))
+                except OperationalError: pass
         except OperationalError as exc:
             logger.error("Failed to initialize database schema: %s", exc)
             raise DatabaseConnectionError(
@@ -160,6 +169,9 @@ class DatabaseManager:
             ) from exc
         except Exception as exc:
             session.rollback()
+            # Allow FastAPI/Starlette HTTPExceptions to bubble up
+            if exc.__class__.__name__ == "HTTPException":
+                raise exc
             logger.error("Unexpected database error: %s", exc)
             raise DatabaseError(
                 f"Unexpected database error: {exc}"
