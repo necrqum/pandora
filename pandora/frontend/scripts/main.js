@@ -1070,21 +1070,23 @@ importConfirmBtn.onclick = async () => {
         importTagInput.value = '';
     }
 
-    const selected = importQueue.filter(i => i.selected);
-    if (selected.length === 1) {
-        selected[0].filename = importFilenameInput.value.trim();
+    const selectedItems = importQueue.filter(i => i.selected);
+    if (selectedItems.length === 0) return alert('No files selected');
+
+    if (selectedItems.length === 1) {
+        selectedItems[0].filename = importFilenameInput.value.trim();
     }
 
     importConfirmBtn.disabled = true;
     importConfirmBtn.style.display = 'none';
     importProgress.style.display = 'block';
     
-    for (let i = 0; i < importQueue.length; i++) {
-        const item = importQueue[i];
+    for (let i = 0; i < selectedItems.length; i++) {
+        const item = selectedItems[i];
         const tagsArr = Array.from(item.tags);
-        const pct = ((i) / importQueue.length) * 100;
+        const pct = ((i) / selectedItems.length) * 100;
         importProgressBar.style.width = `${pct}%`;
-        importStatusText.textContent = `Importing ${i+1}/${importQueue.length}: ${item.filename}`;
+        importStatusText.textContent = `Importing ${i+1}/${selectedItems.length}: ${item.filename}`;
 
         if (item.mode === 'upload') {
             const thumbnailData = await generateThumbnail(item.file);

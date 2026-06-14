@@ -18,7 +18,8 @@ class VaultManager:
 
     def store_file(self, file_iterator: Iterator[bytes]) -> tuple[str, int]:
         """
-        Encrypts and stores a file in chunks.
+        Encrypts and stores a file in fixed-size chunks.
+        Guarantees that every chunk (except the last one) is exactly CHUNK_SIZE.
         Returns a tuple of (file_id, unencrypted_total_size).
         """
         file_id = str(uuid.uuid4())
@@ -26,8 +27,19 @@ class VaultManager:
         
         total_size = 0
         
-        with open(path, 'wb') as f:
+        # Internal buffer to ensure fixed-size chunks reach the encryption layer
+        def fixed_chunk_iterator():
+            buffer = bytearray()
             for chunk in file_iterator:
+                buffer.extend(chunk)
+                while len(buffer) >= CHUNK_SIZE:
+                    yield bytes(buffer[:CHUNK_SIZE])
+                    del buffer[:CHUNK_SIZE]
+            if buffer:
+                yield bytes(buffer)
+
+        with open(path, 'wb') as f:
+            for chunk in fixed_chunk_iterator():
                 total_size += len(chunk)
                 nonce = os.urandom(NONCE_SIZE)
                 ciphertext = self.security.aesgcm.encrypt(nonce, chunk, None)
