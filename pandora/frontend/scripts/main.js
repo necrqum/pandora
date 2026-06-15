@@ -46,6 +46,8 @@ const importQueueList = document.getElementById('import-queue-list');
 const importQueueCount = document.getElementById('import-queue-count');
 const importSelectAllBtn = document.getElementById('import-select-all');
 const importSingleFields = document.getElementById('import-single-fields');
+const importArtistInput = document.getElementById('import-artist');
+const importSourceUrlInput = document.getElementById('import-source-url');
 
 const exportPathInput = document.getElementById('export-path');
 const exportBtn = document.getElementById('export-btn');
@@ -64,6 +66,8 @@ const videoPlayer = document.getElementById('video-player');
 const imageViewer = document.getElementById('image-viewer');
 const playerFilename = document.getElementById('player-filename');
 const playerNotes = document.getElementById('player-notes');
+const playerArtist = document.getElementById('player-artist');
+const playerSourceUrl = document.getElementById('player-source-url');
 const playerTagsList = document.getElementById('player-tags-list');
 const saveNotesBtn = document.getElementById('save-notes-btn');
 const closeModal = document.getElementById('close-modal');
@@ -1060,6 +1064,8 @@ function openImportModal(mode, data) {
             filename: f.name,
             categoryId: null,
             tags: new Set(),
+            artist: '',
+            source_url: '',
             selected: true,
             mode: 'upload',
             fileThumbnail: null
@@ -1080,6 +1086,8 @@ function openImportModal(mode, data) {
             filename: `${data.title || 'video'}.${data.ext || 'mp4'}`,
             categoryId: null,
             tags: new Set(data.tags ? data.tags.slice(0, 5) : []),
+            artist: data.uploader || '',
+            source_url: data.url,
             selected: true,
             mode: 'url',
             thumbnail: data.thumbnail_url
@@ -1147,6 +1155,8 @@ function updateBulkUI() {
     
     if (selected.length === 1) {
         importFilenameInput.value = selected[0].filename;
+        importArtistInput.value = selected[0].artist || '';
+        importSourceUrlInput.value = selected[0].source_url || '';
         importSingleFields.style.display = 'block';
     } else {
         importSingleFields.style.display = 'none';
@@ -1231,6 +1241,8 @@ importConfirmBtn.onclick = async () => {
 
     if (selectedItems.length === 1) {
         selectedItems[0].filename = importFilenameInput.value.trim();
+        selectedItems[0].artist = importArtistInput.value.trim();
+        selectedItems[0].source_url = importSourceUrlInput.value.trim();
     }
 
     importConfirmBtn.disabled = true;
@@ -1252,6 +1264,8 @@ importConfirmBtn.onclick = async () => {
             if (thumbnailData) formData.append('thumbnail', thumbnailData);
             if (item.categoryId) formData.append('category_id', item.categoryId);
             if (tagsArr.length) formData.append('tags', JSON.stringify(tagsArr));
+            if (item.artist) formData.append('artist', item.artist);
+            if (item.source_url) formData.append('source_url', item.source_url);
             
             try {
                 await new Promise((resolve, reject) => {
@@ -1273,7 +1287,9 @@ importConfirmBtn.onclick = async () => {
                         url: item.url,
                         filename: item.filename,
                         category_id: item.categoryId,
-                        tags: tagsArr
+                        tags: tagsArr,
+                        artist: item.artist,
+                        source_url: item.source_url
                     })
                 });
                 importProgressBar.style.width = '100%';
@@ -1327,6 +1343,8 @@ function playFile(id, filename) {
     const file = loadedFiles.find(f => f.id === id);
     playerFilename.textContent = filename;
     playerNotes.value = file ? (file.notes || '') : '';
+    playerArtist.value = file ? (file.artist || '') : '';
+    playerSourceUrl.value = file ? (file.source_url || '') : '';
     let tempTags = file ? [...file.tags] : [];
 
     function renderPlayerTags() {
@@ -1352,14 +1370,17 @@ function playFile(id, filename) {
 
     saveNotesBtn.onclick = async () => {
         const notes = playerNotes.value;
+        const artist = playerArtist.value;
+        const source_url = playerSourceUrl.value;
+        
         saveNotesBtn.disabled = true;
         saveNotesBtn.textContent = 'Saving...';
         try {
-            // Save Notes
-            await fetch(`/api/files/${id}/notes`, {
+            // Save Metadata (Notes, Artist, URL)
+            await fetch(`/api/files/${id}/metadata`, {
                 method: 'PUT',
                 headers: {'Content-Type': 'application/json'},
-                body: JSON.stringify({notes})
+                body: JSON.stringify({notes, artist, source_url})
             });
             // Save Ordered Tags
             await fetch(`/api/files/${id}/tags`, {
@@ -1370,6 +1391,8 @@ function playFile(id, filename) {
             
             if (file) {
                 file.notes = notes;
+                file.artist = artist;
+                file.source_url = source_url;
                 file.tags = tempTags;
             }
             alert('Metadata saved!');

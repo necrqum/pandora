@@ -125,7 +125,7 @@
                         </select>
                     </div>
                     <div class="search-container">
-                        <input type="text" id="search-input" placeholder="Search (e.g. tag:funny -name:IMG)..." class="search-input" />
+                        <input type="text" id="search-input" placeholder="Search (e.g. tag:funny artist:Uploader site:Youtube)..." class="search-input" />
                     </div>
                 </div>
                 <div id="gallery-grid" class="grid">
@@ -240,9 +240,17 @@
                         </div>
 
                         <div id="import-single-fields">
-                            <div style="margin-bottom: 1.5rem;">
+                            <div style="margin-bottom: 1rem;">
                                 <label style="font-size: 0.85rem; opacity: 0.7; margin-bottom: 0.5rem; display: block;">Title / Filename</label>
                                 <input type="text" id="import-filename" placeholder="Filename" style="width: 100%;" />
+                            </div>
+                            <div style="margin-bottom: 1rem;">
+                                <label style="font-size: 0.85rem; opacity: 0.7; margin-bottom: 0.5rem; display: block;">Artist / Uploader</label>
+                                <input type="text" id="import-artist" placeholder="Uploader" style="width: 100%;" />
+                            </div>
+                            <div style="margin-bottom: 1rem;">
+                                <label style="font-size: 0.85rem; opacity: 0.7; margin-bottom: 0.5rem; display: block;">Source URL</label>
+                                <input type="text" id="import-source-url" placeholder="Original URL" style="width: 100%;" />
                             </div>
                         </div>
 
@@ -310,6 +318,12 @@
                     <h3 id="player-filename" style="font-size: 1.1rem; margin-bottom: 1.5rem; word-break: break-all; color: var(--accent);"></h3>
                     
                     <div style="flex: 1; display: flex; flex-direction: column;">
+                        <label style="font-size: 0.75rem; text-transform: uppercase; letter-spacing: 1px; opacity: 0.6; margin-bottom: 0.5rem;">Artist / Uploader</label>
+                        <input type="text" id="player-artist" placeholder="Unknown Artist" style="background: #000; border: 1px solid var(--glass-border); border-radius: 6px; color: var(--text-primary); padding: 0.5rem; margin-bottom: 1rem; font-size: 0.9rem;" />
+
+                        <label style="font-size: 0.75rem; text-transform: uppercase; letter-spacing: 1px; opacity: 0.6; margin-bottom: 0.5rem;">Source URL</label>
+                        <input type="text" id="player-source-url" placeholder="None" style="background: #000; border: 1px solid var(--glass-border); border-radius: 6px; color: var(--text-primary); padding: 0.5rem; margin-bottom: 1rem; font-size: 0.85rem;" />
+
                         <label style="font-size: 0.75rem; text-transform: uppercase; letter-spacing: 1px; opacity: 0.6; margin-bottom: 0.5rem;">Tag Hierarchy (Folder Order)</label>
                         <div id="player-tags-list" style="margin-bottom: 1.5rem; display: flex; flex-direction: column; gap: 0.25rem;">
                             <!-- Tags with Up/Down buttons -->

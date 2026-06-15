@@ -185,9 +185,11 @@ class SearchParser:
             'name': {'include': [], 'exclude': []},
             'tag': {'include': [], 'exclude': []},
             'cat': {'include': [], 'exclude': []},
+            'artist': {'include': [], 'exclude': []},
+            'site': {'include': [], 'exclude': []},
             'any': {'include': [], 'exclude': []}
         }
-        pattern = r'(-)?(?:(name|tag|cat):\s*)?("(?:[^"\\]|\\.)*"|\'(?:[^\'\\]|\\.)*\'|[^\s]+)'
+        pattern = r'(-)?(?:(name|tag|cat|artist|site):\s*)?("(?:[^"\\]|\\.)*"|\'(?:[^\'\\]|\\.)*\'|[^\s]+)'
         matches = re.finditer(pattern, query)
         for match in matches:
             exclude = match.group(1) == '-'
@@ -223,14 +225,18 @@ class FileCategoryUpdate(BaseModel):
 class FileRenameRequest(BaseModel):
     filename: str
 
-class FileNotesRequest(BaseModel):
-    notes: str
+class FileMetadataUpdateRequest(BaseModel):
+    notes: Optional[str] = None
+    artist: Optional[str] = None
+    source_url: Optional[str] = None
 
 class URLImportRequest(BaseModel):
     url: str
     filename: Optional[str] = None
     category_id: Optional[int] = None
     tags: List[str] = []
+    artist: Optional[str] = None
+    source_url: Optional[str] = None
 
 class PurgeRequest(BaseModel):
     password: str
@@ -606,7 +612,9 @@ def import_url(req: URLImportRequest):
             size=total_size,
             duration=duration,
             category_id=req.category_id,
-            thumbnail_data=thumbnail_b64
+            thumbnail_data=thumbnail_b64,
+            source_url=req.source_url or req.url,
+            artist=req.artist or meta.get('uploader')
         )
         if tag_objs:
             db_file.tags = tag_objs
@@ -620,7 +628,9 @@ def upload_file(
     file: UploadFile, 
     thumbnail: Optional[str] = Form(None),
     category_id: Optional[int] = Form(None),
-    tags: Optional[str] = Form(None) # Comma-separated or JSON list
+    tags: Optional[str] = Form(None), # Comma-separated or JSON list
+    artist: Optional[str] = Form(None),
+    source_url: Optional[str] = Form(None)
 ):
     temp_dir = os.path.join(state.config_dir, "temp")
     os.makedirs(temp_dir, exist_ok=True)
@@ -692,7 +702,9 @@ def upload_file(
                 duration=duration,
                 thumbnail_data=thumbnail,
                 category_id=final_category_id,
-                metadata_created_at=creation_date
+                metadata_created_at=creation_date,
+                artist=artist,
+                source_url=source_url
             )
             if tag_objs:
                 db_file.tags = tag_objs
@@ -800,12 +812,22 @@ def list_files(
                 for term in criteria['tag']['exclude']:
                     query = query.filter(~DBFile.tags.any(DBTag.name.ilike(f"%{term}%")))
             
-            # Filter by 'any' (name or tag)
+            # Filter by artist
+            query = apply_filter(query, DBFile.artist, criteria['artist']['include'])
+            query = apply_filter(query, DBFile.artist, criteria['artist']['exclude'], exclude=True)
+            
+            # Filter by site (source_url)
+            query = apply_filter(query, DBFile.source_url, criteria['site']['include'])
+            query = apply_filter(query, DBFile.source_url, criteria['site']['exclude'], exclude=True)
+
+            # Filter by 'any' (name or tag or artist or site)
             for term in criteria['any']['include']:
                 query = query.filter(
                     or_(
                         DBFile.filename.ilike(f"%{term}%"),
-                        DBFile.tags.any(DBTag.name.ilike(f"%{term}%"))
+                        DBFile.tags.any(DBTag.name.ilike(f"%{term}%")),
+                        DBFile.artist.ilike(f"%{term}%"),
+                        DBFile.source_url.ilike(f"%{term}%")
                     )
                 )
             for term in criteria['any']['exclude']:
@@ -855,6 +877,8 @@ def list_files(
                     "created_at": f.metadata_created_at.isoformat() if f.metadata_created_at else None,
                     "is_favorite": bool(f.is_favorite),
                     "notes": f.notes,
+                    "artist": f.artist,
+                    "source_url": f.source_url,
                     "tags": [t.name for t in f.tags if t]
                 } for f in files
             ],
@@ -1037,12 +1061,14 @@ def toggle_favorite(file_id: str):
         db_file.is_favorite = 0 if db_file.is_favorite else 1
         return {"status": "ok", "is_favorite": bool(db_file.is_favorite)}
 
-@app.put("/api/files/{file_id}/notes", dependencies=[Depends(require_unlocked)])
-def update_notes(file_id: str, req: FileNotesRequest):
+@app.put("/api/files/{file_id}/metadata", dependencies=[Depends(require_unlocked)])
+def update_metadata(file_id: str, req: FileMetadataUpdateRequest):
     with state.db.session_scope() as session:
         db_file = session.query(DBFile).filter(DBFile.id == file_id).first()
         if not db_file: raise HTTPException(status_code=404, detail="File not found")
-        db_file.notes = req.notes
+        if req.notes is not None: db_file.notes = req.notes
+        if req.artist is not None: db_file.artist = req.artist
+        if req.source_url is not None: db_file.source_url = req.source_url
     return {"status": "ok"}
 
 @app.put("/api/files/{file_id}/rename", dependencies=[Depends(require_unlocked)])

@@ -24,7 +24,8 @@ def fetch_metadata(url: str) -> Optional[Dict[str, Any]]:
                 "thumbnail_url": info.get('thumbnail'),
                 "tags": info.get('tags', []),
                 "ext": info.get('ext', 'mp4'),
-                "webpage_url": info.get('webpage_url')
+                "webpage_url": info.get('webpage_url'),
+                "uploader": info.get('uploader') or info.get('uploader_id')
             }
     except Exception as e:
         logger.error(f"Failed to fetch metadata for {url}: {e}")

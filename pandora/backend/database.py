@@ -49,6 +49,8 @@ class File(Base):
     metadata_created_at = Column(DateTime, nullable=True) # From file metadata
     is_favorite = Column(Integer, default=0) # 0 for False, 1 for True (SQLite compatible)
     notes = Column(String, nullable=True) # Personal notes
+    artist = Column(String, nullable=True) # Uploader / Creator
+    source_url = Column(String, nullable=True) # Original URL
     
     category = relationship("Category", back_populates="files")
     tags = relationship(
@@ -122,6 +124,12 @@ class DatabaseManager:
                 except OperationalError: pass
                 try:
                     conn.execute(text("ALTER TABLE file_tag ADD COLUMN position INTEGER DEFAULT 0"))
+                except OperationalError: pass
+                try:
+                    conn.execute(text("ALTER TABLE files ADD COLUMN artist TEXT"))
+                except OperationalError: pass
+                try:
+                    conn.execute(text("ALTER TABLE files ADD COLUMN source_url TEXT"))
                 except OperationalError: pass
         except OperationalError as exc:
             logger.error("Failed to initialize database schema: %s", exc)
