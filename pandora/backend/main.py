@@ -2,7 +2,7 @@ import signal
 import sys
 import socket
 from sqlalchemy import or_
-from fastapi import FastAPI, HTTPException, UploadFile, Depends, Request, Response, Cookie, Form
+from fastapi import FastAPI, HTTPException, UploadFile, Depends, Request, Response, Cookie, Form, BackgroundTasks
 from fastapi.responses import StreamingResponse, HTMLResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
@@ -37,6 +37,8 @@ class AppState:
     config_path: str = os.path.expanduser("~/.pandora_config")
 
 state = AppState()
+
+import_tasks = {}
 
 def setup_vault_paths(config_dir: str, blob_dir: Optional[str] = None):
     state.config_dir = os.path.abspath(config_dir)
@@ -237,6 +239,7 @@ class URLImportRequest(BaseModel):
     tags: List[str] = []
     artist: Optional[str] = None
     source_url: Optional[str] = None
+    playlist_index: Optional[int] = None
 
 class PurgeRequest(BaseModel):
     password: str
@@ -563,65 +566,91 @@ def import_preview(url: str):
         raise HTTPException(status_code=400, detail="Failed to fetch metadata")
     return meta
 
-@app.post("/api/import/url", dependencies=[Depends(require_unlocked)])
-def import_url(req: URLImportRequest):
+def run_import_task(task_id: str, req: URLImportRequest):
     from .scrapers.ytdlp_engine import fetch_metadata, download_stream
     from .database import Tag as DBTag
     import requests
     import base64
     
-    meta = fetch_metadata(req.url)
-    if not meta:
-        raise HTTPException(status_code=400, detail="Failed to fetch metadata")
-    
-    filename = req.filename or f"{meta['title']}.{meta['ext']}"
-    duration = meta.get('duration')
-    
-    # Download thumbnail if available
-    thumbnail_b64 = None
-    if meta.get('thumbnail_url'):
-        try:
-            r = requests.get(meta['thumbnail_url'], timeout=10)
-            if r.ok:
-                thumbnail_b64 = f"data:{r.headers.get('Content-Type', 'image/jpeg')};base64,{base64.b64encode(r.content).decode('utf-8')}"
-        except Exception as e:
-            state.logger.warning(f"Failed to download thumbnail from {meta['thumbnail_url']}: {e}")
-    
     try:
-        temp_dir = os.path.join(state.config_dir, "temp")
-        file_id, total_size = state.vault.store_file(download_stream(req.url, temp_dir))
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Download failed: {str(e)}")
-    
-    with state.db.session_scope() as session:
-        # Handle tags
-        tag_objs = []
-        for tname in req.tags:
-            tname = tname.strip()
-            if not tname: continue
-            tag = session.query(DBTag).filter(DBTag.name == tname).first()
-            if not tag:
-                tag = DBTag(name=tname)
-                session.add(tag)
-                session.flush()
-            tag_objs.append(tag)
-        
-        db_file = DBFile(
-            id=file_id,
-            filename=filename,
-            size=total_size,
-            duration=duration,
-            category_id=req.category_id,
-            thumbnail_data=thumbnail_b64,
-            source_url=req.source_url or req.url,
-            artist=req.artist or meta.get('uploader')
-        )
-        if tag_objs:
-            db_file.tags = tag_objs
+        meta = fetch_metadata(req.url)
+        if not meta:
+            import_tasks[task_id] = {"status": "error", "error": "Failed to fetch metadata"}
+            return
             
-        session.add(db_file)
+        if meta.get("is_playlist") and req.playlist_index is not None:
+            target_entry = None
+            for e in meta.get("entries", []):
+                if e.get("playlist_index") == req.playlist_index:
+                    target_entry = e
+                    break
+            if target_entry:
+                meta = target_entry
+            else:
+                import_tasks[task_id] = {"status": "error", "error": "Playlist item not found"}
+                return
         
-    return {"id": file_id, "filename": filename}
+        filename = req.filename or f"{meta.get('title', 'Unknown')}.{meta.get('ext', 'mp4')}"
+        duration = meta.get('duration')
+        
+        # Download thumbnail if available
+        thumbnail_b64 = None
+        if meta.get('thumbnail_url'):
+            try:
+                r = requests.get(meta['thumbnail_url'], timeout=10)
+                if r.ok:
+                    thumbnail_b64 = f"data:{r.headers.get('Content-Type', 'image/jpeg')};base64,{base64.b64encode(r.content).decode('utf-8')}"
+            except Exception as e:
+                state.logger.warning(f"Failed to download thumbnail from {meta['thumbnail_url']}: {e}")
+        
+        temp_dir = os.path.join(state.config_dir, "temp")
+        file_id, total_size = state.vault.store_file(download_stream(req.url, temp_dir, playlist_index=req.playlist_index))
+        
+        with state.db.session_scope() as session:
+            # Handle tags
+            tag_objs = []
+            for tname in req.tags:
+                tname = tname.strip()
+                if not tname: continue
+                tag = session.query(DBTag).filter(DBTag.name == tname).first()
+                if not tag:
+                    tag = DBTag(name=tname)
+                    session.add(tag)
+                    session.flush()
+                tag_objs.append(tag)
+            
+            db_file = DBFile(
+                id=file_id,
+                filename=filename,
+                size=total_size,
+                duration=duration,
+                category_id=req.category_id,
+                thumbnail_data=thumbnail_b64,
+                source_url=req.source_url or req.url,
+                artist=req.artist or meta.get('uploader')
+            )
+            if tag_objs:
+                db_file.tags = tag_objs
+                
+            session.add(db_file)
+            
+        import_tasks[task_id] = {"status": "completed", "id": file_id, "filename": filename}
+    except Exception as e:
+        import_tasks[task_id] = {"status": "error", "error": str(e)}
+
+@app.post("/api/import/url", dependencies=[Depends(require_unlocked)])
+def import_url(req: URLImportRequest, background_tasks: BackgroundTasks):
+    task_id = secrets.token_hex(8)
+    import_tasks[task_id] = {"status": "downloading"}
+    background_tasks.add_task(run_import_task, task_id, req)
+    return {"task_id": task_id}
+
+@app.get("/api/import/status/{task_id}", dependencies=[Depends(require_unlocked)])
+def import_status(task_id: str):
+    task = import_tasks.get(task_id)
+    if not task:
+        raise HTTPException(status_code=404, detail="Task not found")
+    return task
 
 @app.post("/api/files", dependencies=[Depends(require_unlocked)])
 def upload_file(

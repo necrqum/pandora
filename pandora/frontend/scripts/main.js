@@ -42,6 +42,61 @@ const importStatusText = document.getElementById('import-status-text');
 const importUrlInput = document.getElementById('import-url-input');
 const importUrlBtn = document.getElementById('import-url-btn');
 
+const activeTasksIndicator = document.getElementById('active-tasks-indicator');
+const activeTasksText = document.getElementById('active-tasks-text');
+let activeTasks = [];
+
+function updateTasksUI() {
+    if (activeTasks.length > 0) {
+        activeTasksIndicator.style.display = 'block';
+        activeTasksText.textContent = `${activeTasks.length} downloading...`;
+    } else {
+        activeTasksIndicator.style.display = 'none';
+    }
+}
+
+async function pollTasks() {
+    if (activeTasks.length === 0) return;
+    
+    let hasChanges = false;
+    for (let i = activeTasks.length - 1; i >= 0; i--) {
+        const task = activeTasks[i];
+        try {
+            const res = await fetch(`/api/import/status/${task.id}`);
+            if (res.ok) {
+                const data = await res.json();
+                if (data.status === 'completed' || data.status === 'error') {
+                    activeTasks.splice(i, 1);
+                    hasChanges = true;
+                }
+            } else {
+                activeTasks.splice(i, 1);
+                hasChanges = true;
+            }
+        } catch (e) {
+            console.error('Error polling task', e);
+        }
+    }
+    
+    updateTasksUI();
+    
+    if (hasChanges) {
+        loadFiles();
+    }
+    
+    if (activeTasks.length > 0) {
+        setTimeout(pollTasks, 2000);
+    }
+}
+
+function trackTask(taskId, filename) {
+    activeTasks.push({ id: taskId, filename });
+    updateTasksUI();
+    if (activeTasks.length === 1) {
+        pollTasks();
+    }
+}
+
 const importQueueList = document.getElementById('import-queue-list');
 const importQueueCount = document.getElementById('import-queue-count');
 const importSelectAllBtn = document.getElementById('import-select-all');
@@ -1080,19 +1135,36 @@ function openImportModal(mode, data) {
             });
         });
     } else {
-        importQueue = [{
-            id: 0,
-            url: data.url,
-            filename: `${data.title || 'video'}.${data.ext || 'mp4'}`,
-            categoryId: null,
-            tags: new Set(data.tags ? data.tags.slice(0, 5) : []),
-            artist: data.uploader || '',
-            source_url: data.url,
-            selected: true,
-            mode: 'url',
-            thumbnail: data.thumbnail_url
-        }];
-        importModalTitle.textContent = 'Import from URL';
+        if (data.is_playlist) {
+            importQueue = data.entries.map((entry, i) => ({
+                id: i,
+                url: data.url,
+                playlist_index: entry.playlist_index,
+                filename: `${entry.title || 'video'}.${entry.ext || 'mp4'}`,
+                categoryId: null,
+                tags: new Set(entry.tags ? entry.tags.slice(0, 5) : []),
+                artist: entry.uploader || '',
+                source_url: entry.webpage_url || data.url,
+                selected: true,
+                mode: 'url',
+                thumbnail: entry.thumbnail_url
+            }));
+            importModalTitle.textContent = `Import Playlist (${importQueue.length})`;
+        } else {
+            importQueue = [{
+                id: 0,
+                url: data.url,
+                filename: `${data.title || 'video'}.${data.ext || 'mp4'}`,
+                categoryId: null,
+                tags: new Set(data.tags ? data.tags.slice(0, 5) : []),
+                artist: data.uploader || '',
+                source_url: data.url,
+                selected: true,
+                mode: 'url',
+                thumbnail: data.thumbnail_url
+            }];
+            importModalTitle.textContent = 'Import from URL';
+        }
     }
     
     renderImportQueue();
@@ -1249,42 +1321,27 @@ importConfirmBtn.onclick = async () => {
     importConfirmBtn.style.display = 'none';
     importProgress.style.display = 'block';
     
-    for (let i = 0; i < selectedItems.length; i++) {
-        const item = selectedItems[i];
-        const tagsArr = Array.from(item.tags);
-        const pct = ((i) / selectedItems.length) * 100;
-        importProgressBar.style.width = `${pct}%`;
-        importStatusText.textContent = `Importing ${i+1}/${selectedItems.length}: ${item.filename}`;
-
-        if (item.mode === 'upload') {
-            const thumbnailData = await generateThumbnail(item.file);
-            const formData = new FormData();
-            formData.append('file', item.file);
-            formData.append('filename', item.filename);
-            if (thumbnailData) formData.append('thumbnail', thumbnailData);
-            if (item.categoryId) formData.append('category_id', item.categoryId);
-            if (tagsArr.length) formData.append('tags', JSON.stringify(tagsArr));
-            if (item.artist) formData.append('artist', item.artist);
-            if (item.source_url) formData.append('source_url', item.source_url);
-            
-            try {
-                await new Promise((resolve, reject) => {
-                    const xhr = new XMLHttpRequest();
-                    xhr.open('POST', '/api/files');
-                    xhr.onload = () => xhr.status === 200 ? resolve() : reject(new Error('Upload failed'));
-                    xhr.onerror = () => reject(new Error('Network error'));
-                    xhr.send(formData);
-                });
-            } catch (e) { console.error(e); }
-        } else {
-            importStatusText.textContent = 'Step 1/2: Downloading & Merging from URL...';
-            importProgressBar.style.width = '30%';
+    let pendingUploads = [];
+    let pendingUrls = [];
+    
+    for (const item of selectedItems) {
+        if (item.mode === 'upload') pendingUploads.push(item);
+        else pendingUrls.push(item);
+    }
+    
+    // Dispatch URL tasks (they return immediately)
+    if (pendingUrls.length > 0) {
+        importStatusText.textContent = `Dispatching URL downloads...`;
+        importProgressBar.style.width = '30%';
+        for (const item of pendingUrls) {
+            const tagsArr = Array.from(item.tags);
             try {
                 const res = await fetch('/api/import/url', {
                     method: 'POST',
                     headers: {'Content-Type': 'application/json'},
                     body: JSON.stringify({
                         url: item.url,
+                        playlist_index: item.playlist_index,
                         filename: item.filename,
                         category_id: item.categoryId,
                         tags: tagsArr,
@@ -1292,17 +1349,47 @@ importConfirmBtn.onclick = async () => {
                         source_url: item.source_url
                     })
                 });
-                importProgressBar.style.width = '100%';
-                if (!res.ok) {
+                if (res.ok) {
                     const data = await res.json();
-                    throw new Error(data.detail || 'Download failed');
+                    if (data.task_id) {
+                        trackTask(data.task_id, item.filename);
+                    }
                 }
             } catch (e) { console.error(e); }
         }
     }
     
+    // Process physical uploads
+    for (let i = 0; i < pendingUploads.length; i++) {
+        const item = pendingUploads[i];
+        const tagsArr = Array.from(item.tags);
+        const pct = ((i) / pendingUploads.length) * 100;
+        importProgressBar.style.width = `${pct}%`;
+        importStatusText.textContent = `Uploading ${i+1}/${pendingUploads.length}: ${item.filename}`;
+
+        const thumbnailData = await generateThumbnail(item.file);
+        const formData = new FormData();
+        formData.append('file', item.file);
+        formData.append('filename', item.filename);
+        if (thumbnailData) formData.append('thumbnail', thumbnailData);
+        if (item.categoryId) formData.append('category_id', item.categoryId);
+        if (tagsArr.length) formData.append('tags', JSON.stringify(tagsArr));
+        if (item.artist) formData.append('artist', item.artist);
+        if (item.source_url) formData.append('source_url', item.source_url);
+        
+        try {
+            await new Promise((resolve, reject) => {
+                const xhr = new XMLHttpRequest();
+                xhr.open('POST', '/api/files');
+                xhr.onload = () => xhr.status === 200 ? resolve() : reject(new Error('Upload failed'));
+                xhr.onerror = () => reject(new Error('Network error'));
+                xhr.send(formData);
+            });
+        } catch (e) { console.error(e); }
+    }
+    
     importProgressBar.style.width = '100%';
-    importStatusText.textContent = 'Complete!';
+    importStatusText.textContent = 'Complete! Background tasks running...';
     setTimeout(() => {
         importModal.classList.remove('active');
         fileInput.value = '';

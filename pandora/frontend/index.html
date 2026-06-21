@@ -47,7 +47,10 @@
                 <button id="sidebar-toggle" class="btn btn-outline btn-small mobile-only">☰</button>
                 <div class="logo">PANDORA'S BOX</div>
             </div>
-            <div style="display: flex; gap: 0.5rem;">
+            <div style="display: flex; gap: 0.5rem; align-items: center;">
+                <div id="active-tasks-indicator" style="display: none; font-size: 0.85rem; color: var(--primary); background: rgba(0,0,0,0.2); padding: 4px 8px; border-radius: 4px; border: 1px solid var(--border-color);">
+                    <span id="active-tasks-text">0 downloading...</span>
+                </div>
                 <button id="settings-btn" class="btn btn-outline btn-small">⚙️</button>
                 <button id="panic-btn" class="btn btn-danger btn-small" title="Double tap Esc to quick-lock">PANIC LOCK</button>
             </div>
