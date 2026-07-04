@@ -19,6 +19,26 @@ Pandora acts as a "Pandora's Box" — a completely separate, safe environment fo
 - **Stealth Mode**: A decoy login screen protects the vault.
 - **In-Memory Streaming**: Media is never decrypted to a temporary file; it flows directly from encrypted storage to the player with 4MB chunking for optimized seeking.
 - **Intelligent Thumbnails**: A secure backend pipeline instantly extracts zero-footprint thumbnails for your videos and images.
+- **Offline Mass Importer**: A dedicated offline Python script (`pandora_importer.py`) allows you to seamlessly mass-import gigabytes of files with zero freezing or DB concurrency locking, directly utilizing the core encryption modules.
+
+---
+
+## 🔍 Advanced Search & Filtering
+
+Pandora includes a powerful search bar that allows complex queries using specific prefixes and exclusionary syntax.
+
+**Supported Prefixes:**
+- `name:` Filter by filename
+- `tag:` Filter by tags
+- `cat:` Filter by category
+- `artist:` Filter by artist / uploader
+- `site:` Filter by origin site (e.g., youtube)
+- `favorite:true` or `favorite:false` Filter by favorite status
+
+**Syntax Examples:**
+- `tag:milf -tag:amateur` (Find files tagged 'milf' but EXCLUDE those tagged 'amateur')
+- `cat:video artist:"John Doe"` (Find videos uploaded by "John Doe" using quotes for spaces)
+- `-name:test` (Exclude files with "test" in their name)
 
 ---
 
@@ -36,7 +56,7 @@ If you just want to run Pandora without installing Python or dealing with enviro
 
 ### Option B: Install from Source
 
-If you want to modify the code or prefer running it via Python:
+If you want to modify the code, use the Mass Importer script, or prefer running it via Python:
 
 1. **Clone the repository:**
    ```bash
@@ -58,6 +78,18 @@ If you want to modify the code or prefer running it via Python:
    ```bash
    pandora
    ```
+
+### 📦 Using the Offline Mass Importer
+
+If you have hundreds of files (gigabytes of data) to import at once, it is highly recommended to use the **Offline Mass Importer**. This standalone script bypasses the web server to encrypt and import files completely synchronously, completely avoiding system freezing or DB lock issues.
+
+1. Ensure the Pandora web server is **shut down**.
+2. Run the importer:
+   ```bash
+   python pandora_importer.py
+   ```
+3. Enter your Master Password.
+4. Add your folders/files, select tags, and click **START MASS IMPORT**.
 
 ---
 
