@@ -170,6 +170,7 @@ const bulkCatBtn = document.getElementById('bulk-cat-btn');
 const bulkDeleteBtn = document.getElementById('bulk-delete-btn');
 const bulkScrapeBtn = document.getElementById('bulk-scrape-btn');
 const clearSelectionBtn = document.getElementById('clear-selection-btn');
+const selectAllBtn = document.getElementById('select-all-btn');
 
 const renameModal = document.getElementById('rename-modal');
 const closeRenameBtn = document.getElementById('close-rename');
@@ -822,6 +823,27 @@ function updateSelectionUI() {
 
 clearSelectionBtn.onclick = () => {
     selectedFileIds.clear();
+    updateSelectionUI();
+};
+
+selectAllBtn.onclick = () => {
+    const cards = Array.from(galleryGrid.querySelectorAll('.media-card'));
+    if (cards.length === 0) return;
+    
+    let allSelected = true;
+    for (const card of cards) {
+        if (!selectedFileIds.has(card.dataset.id)) {
+            allSelected = false;
+            break;
+        }
+    }
+    
+    if (allSelected) {
+        cards.forEach(card => selectedFileIds.delete(card.dataset.id));
+    } else {
+        cards.forEach(card => selectedFileIds.add(card.dataset.id));
+    }
+    
     updateSelectionUI();
 };
 

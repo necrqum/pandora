@@ -1,6 +1,0 @@
-fastapi
-uvicorn
-cryptography
-sqlalchemy
-pydantic
-sqlcipher3-binary
