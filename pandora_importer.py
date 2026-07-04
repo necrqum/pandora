@@ -8,6 +8,12 @@ import json
 import traceback
 from pathlib import Path
 
+try:
+    from tkinterdnd2 import TkinterDnD, DND_FILES
+    DND_AVAILABLE = True
+except ImportError:
+    DND_AVAILABLE = False
+
 # Ensure pandora modules can be imported
 sys.path.insert(0, os.path.abspath(os.path.dirname(__file__)))
 
@@ -49,7 +55,7 @@ class PandoraImporter:
     def __init__(self, root):
         self.root = root
         self.root.title("Pandora Mass Importer (Offline)")
-        self.root.geometry("600x500")
+        self.root.geometry("800x650")
         
         self.security = None
         self.db = None
@@ -110,30 +116,69 @@ class PandoraImporter:
         self.main_frame = ttk.Frame(self.root, padding="10")
         self.main_frame.pack(expand=True, fill='both')
         
-        top_frame = ttk.Frame(self.main_frame)
+        # Files List Section
+        files_frame = ttk.LabelFrame(self.main_frame, text="Files to Import (Drag & Drop supported)" if DND_AVAILABLE else "Files to Import", padding="5")
+        files_frame.pack(fill='both', expand=True, pady=5)
+        
+        top_frame = ttk.Frame(files_frame)
         top_frame.pack(fill='x', pady=5)
         
         ttk.Button(top_frame, text="Add Files", command=self.select_files).pack(side='left', padx=5)
         ttk.Button(top_frame, text="Add Folder (recursive)", command=self.select_folder).pack(side='left', padx=5)
-        ttk.Button(top_frame, text="Clear List", command=self.clear_list).pack(side='left', padx=5)
+        ttk.Button(top_frame, text="Remove Selected (Del)", command=self.remove_selected_files).pack(side='left', padx=5)
+        ttk.Button(top_frame, text="Clear All", command=self.clear_list).pack(side='left', padx=5)
         
-        self.listbox = tk.Listbox(self.main_frame)
-        self.listbox.pack(fill='both', expand=True, pady=10)
+        list_scroll = ttk.Scrollbar(files_frame)
+        list_scroll.pack(side='right', fill='y')
+        self.listbox = tk.Listbox(files_frame, selectmode=tk.EXTENDED, yscrollcommand=list_scroll.set)
+        self.listbox.pack(fill='both', expand=True)
+        list_scroll.config(command=self.listbox.yview)
         
-        options_frame = ttk.LabelFrame(self.main_frame, text="Default Import Settings", padding="10")
+        # Shortcuts for file list
+        self.listbox.bind("<Control-a>", self.select_all_files)
+        self.listbox.bind("<Delete>", self.remove_selected_files)
+        self.listbox.bind("<BackSpace>", self.remove_selected_files)
+        
+        if DND_AVAILABLE:
+            self.listbox.drop_target_register(DND_FILES)
+            self.listbox.dnd_bind('<<Drop>>', self.on_drop_files)
+        
+        # Settings Section
+        options_frame = ttk.LabelFrame(self.main_frame, text="Import Settings", padding="10")
         options_frame.pack(fill='x', pady=10)
         
-        ttk.Label(options_frame, text="Category (leave empty for auto):").grid(row=0, column=0, padx=5, pady=5, sticky='w')
+        # Category
+        cat_frame = ttk.Frame(options_frame)
+        cat_frame.pack(fill='x', pady=5)
+        ttk.Label(cat_frame, text="Category (Select or type new):").pack(side='left', padx=5)
         self.category_var = tk.StringVar()
-        self.category_combo = ttk.Combobox(options_frame, textvariable=self.category_var)
-        self.category_combo.grid(row=0, column=1, padx=5, pady=5, sticky='ew')
+        self.category_combo = ttk.Combobox(cat_frame, textvariable=self.category_var)
+        self.category_combo.pack(side='left', fill='x', expand=True, padx=5)
         
-        ttk.Label(options_frame, text="Tags (comma separated):").grid(row=1, column=0, padx=5, pady=5, sticky='w')
-        self.tags_entry = ttk.Entry(options_frame)
-        self.tags_entry.grid(row=1, column=1, padx=5, pady=5, sticky='ew')
+        # Tags
+        tags_frame = ttk.Frame(options_frame)
+        tags_frame.pack(fill='both', expand=True, pady=5)
+        ttk.Label(tags_frame, text="Select Tags:").pack(side='left', anchor='n', padx=5)
         
-        options_frame.columnconfigure(1, weight=1)
+        tags_list_frame = ttk.Frame(tags_frame)
+        tags_list_frame.pack(side='left', fill='both', expand=True, padx=5)
         
+        tag_scroll = ttk.Scrollbar(tags_list_frame)
+        tag_scroll.pack(side='right', fill='y')
+        self.tags_listbox = tk.Listbox(tags_list_frame, selectmode=tk.MULTIPLE, height=4, yscrollcommand=tag_scroll.set)
+        self.tags_listbox.pack(side='left', fill='both', expand=True)
+        tag_scroll.config(command=self.tags_listbox.yview)
+        
+        new_tag_frame = ttk.Frame(tags_frame)
+        new_tag_frame.pack(side='left', anchor='n', padx=5)
+        ttk.Label(new_tag_frame, text="Add New Tag:").pack(anchor='w')
+        self.new_tag_var = tk.StringVar()
+        new_tag_entry = ttk.Entry(new_tag_frame, textvariable=self.new_tag_var)
+        new_tag_entry.pack(fill='x')
+        new_tag_entry.bind("<Return>", lambda e: self.add_new_tag())
+        ttk.Button(new_tag_frame, text="Add", command=self.add_new_tag).pack(fill='x', pady=2)
+        
+        # Start & Progress
         self.start_btn = ttk.Button(self.main_frame, text="START MASS IMPORT", command=self.start_import)
         self.start_btn.pack(pady=10, fill='x')
         
@@ -145,6 +190,7 @@ class PandoraImporter:
         ttk.Label(self.main_frame, textvariable=self.status_var).pack()
         
         self.load_categories()
+        self.load_tags()
 
     def load_categories(self):
         try:
@@ -153,23 +199,68 @@ class PandoraImporter:
                 self.category_combo['values'] = [c.name for c in cats]
         except Exception as e:
             print("Failed to load categories:", e)
+            
+    def load_tags(self):
+        try:
+            with self.db.session_scope() as session:
+                tags = session.query(DBTag).all()
+                self.tags_listbox.delete(0, tk.END)
+                for t in tags:
+                    self.tags_listbox.insert(tk.END, t.name)
+        except Exception as e:
+            print("Failed to load tags:", e)
+            
+    def add_new_tag(self):
+        new_tag = self.new_tag_var.get().strip()
+        if new_tag:
+            # Check if it already exists in listbox
+            existing = self.tags_listbox.get(0, tk.END)
+            if new_tag not in existing:
+                self.tags_listbox.insert(tk.END, new_tag)
+            # Select it
+            idx = self.tags_listbox.get(0, tk.END).index(new_tag)
+            self.tags_listbox.selection_set(idx)
+            self.new_tag_var.set("")
 
-    def select_files(self):
-        files = filedialog.askopenfilenames()
+    def select_all_files(self, event=None):
+        self.listbox.selection_set(0, tk.END)
+        return "break"
+        
+    def remove_selected_files(self, event=None):
+        selected = list(self.listbox.curselection())
+        selected.reverse() # Delete from bottom to top to preserve indices
+        for idx in selected:
+            self.listbox.delete(idx)
+            del self.files_to_import[idx]
+            
+    def on_drop_files(self, event):
+        # TkinterDnD2 returns a string of paths, space separated, wrapped in curly braces if spaces exist
+        files = self.root.tk.splitlist(event.data)
         for f in files:
-            if f not in self.files_to_import:
-                self.files_to_import.append(f)
-                self.listbox.insert(tk.END, f)
-                
-    def select_folder(self):
-        folder = filedialog.askdirectory()
-        if folder:
-            for root, _, files in os.walk(folder):
+            self._add_file_or_folder(f)
+
+    def _add_file_or_folder(self, path):
+        if os.path.isdir(path):
+            for root, _, files in os.walk(path):
                 for file in files:
                     full_path = os.path.join(root, file)
                     if full_path not in self.files_to_import:
                         self.files_to_import.append(full_path)
                         self.listbox.insert(tk.END, full_path)
+        else:
+            if path not in self.files_to_import:
+                self.files_to_import.append(path)
+                self.listbox.insert(tk.END, path)
+
+    def select_files(self):
+        files = filedialog.askopenfilenames()
+        for f in files:
+            self._add_file_or_folder(f)
+                
+    def select_folder(self):
+        folder = filedialog.askdirectory()
+        if folder:
+            self._add_file_or_folder(folder)
                         
     def clear_list(self):
         self.files_to_import.clear()
@@ -181,11 +272,12 @@ class PandoraImporter:
             
         self.start_btn.config(state='disabled')
         self.category_combo.config(state='disabled')
-        self.tags_entry.config(state='disabled')
         
         cat_name = self.category_var.get().strip()
-        tags_raw = self.tags_entry.get().strip()
-        tags = [t.strip() for t in tags_raw.split(',')] if tags_raw else []
+        
+        # Gather selected tags
+        selected_indices = self.tags_listbox.curselection()
+        tags = [self.tags_listbox.get(i) for i in selected_indices]
         
         threading.Thread(target=self._import_thread, args=(cat_name, tags), daemon=True).start()
 
@@ -261,8 +353,6 @@ class PandoraImporter:
                     session.add(db_file)
                 
                 success += 1
-                
-                # Optional: update UI listbox to show completion
                 self.root.after(0, lambda idx=i: self.listbox.itemconfig(idx, {'bg': '#d4edda'}))
                 
             except Exception as e:
@@ -273,15 +363,18 @@ class PandoraImporter:
             self.progress_var.set((i+1) / total * 100)
             
         self.status_var.set(f"Completed! {success} added, {failed} failed.")
-        
         self.root.after(0, lambda: self.start_btn.config(state='normal'))
         self.root.after(0, lambda: self.category_combo.config(state='normal'))
-        self.root.after(0, lambda: self.tags_entry.config(state='normal'))
+        
+        # Reload categories/tags to reflect any new ones that were created during import
+        self.root.after(0, self.load_categories)
 
 if __name__ == "__main__":
-    root = tk.Tk()
-    
-    # Simple styling
+    if DND_AVAILABLE:
+        root = TkinterDnD.Tk()
+    else:
+        root = tk.Tk()
+        
     style = ttk.Style(root)
     style.theme_use('clam')
     
