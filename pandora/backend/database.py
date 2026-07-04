@@ -64,7 +64,9 @@ class DatabaseManager:
     def __init__(self, db_path: str, password: str):
         # We must use URL encoding or absolute paths properly for sqlite+pysqlcipher
         # Using a direct connection string with the module parameter
-        db_url = f"sqlite+pysqlcipher://:{password}@/{os.path.abspath(db_path)}"
+        import urllib.parse
+        encoded_password = urllib.parse.quote_plus(password)
+        db_url = f"sqlite+pysqlcipher://:{encoded_password}@/{os.path.abspath(db_path)}"
 
         try:
             from sqlalchemy.pool import NullPool

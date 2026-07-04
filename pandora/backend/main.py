@@ -15,6 +15,9 @@ import json
 from fastapi.responses import JSONResponse
 import time
 import mimetypes
+import threading
+
+db_write_lock = threading.Lock()
 
 from .security import VaultSecurity
 from .database import DatabaseManager, File as DBFile, Category as DBCategory
@@ -277,7 +280,8 @@ def require_unlocked(session_token: Optional[str] = Cookie(None)):
 @app.post("/api/files/batch/tags", dependencies=[Depends(require_unlocked)])
 def batch_update_tags(req: BatchTagsRequest):
     from .database import Tag as DBTag
-    with state.db.session_scope() as session:
+    with db_write_lock:
+        with state.db.session_scope() as session:
         files = session.query(DBFile).filter(DBFile.id.in_(req.file_ids)).all()
         if not files: return {"status": "ok", "count": 0}
         
@@ -329,7 +333,8 @@ def batch_scrape(req: BatchRequest, background_tasks: BackgroundTasks):
     from .scrapers.ytdlp_engine import fetch_metadata
     
     def run_batch_scrape(file_ids):
-        with state.db.session_scope() as session:
+        with db_write_lock:
+            with state.db.session_scope() as session:
             for file_id in file_ids:
                 f = session.query(DBFile).filter(DBFile.id == file_id).first()
                 if f and f.source_url:
@@ -638,7 +643,8 @@ def run_import_task(task_id: str, req: URLImportRequest):
         temp_dir = os.path.join(state.config_dir, "temp")
         file_id, total_size = state.vault.store_file(download_stream(req.url, temp_dir, playlist_index=req.playlist_index))
         
-        with state.db.session_scope() as session:
+        with db_write_lock:
+            with state.db.session_scope() as session:
             # Handle tags
             tag_objs = []
             for tname in req.tags:
@@ -718,58 +724,59 @@ def upload_file(
         
         # Determine category
         final_category_id = category_id
-        if not final_category_id:
-            # Automatic categorization if none provided
-            cat_name = "Other"
-            ext_lower = ext.lower()
-            if ext_lower in ['mp4', 'mov', 'avi', 'mkv', 'webm', 'flv', 'wmv']:
-                cat_name = "Video"
-            elif ext_lower in ['jpg', 'jpeg', 'png', 'gif', 'webp']:
-                cat_name = "Image"
-            elif ext_lower in ['pdf', 'txt', 'doc', 'docx']:
-                cat_name = "Document"
+        with db_write_lock:
+            if not final_category_id:
+                # Automatic categorization if none provided
+                cat_name = "Other"
+                ext_lower = ext.lower()
+                if ext_lower in ['mp4', 'mov', 'avi', 'mkv', 'webm', 'flv', 'wmv']:
+                    cat_name = "Video"
+                elif ext_lower in ['jpg', 'jpeg', 'png', 'gif', 'webp']:
+                    cat_name = "Image"
+                elif ext_lower in ['pdf', 'txt', 'doc', 'docx']:
+                    cat_name = "Document"
 
+                with state.db.session_scope() as session:
+                    category = session.query(DBCategory).filter(DBCategory.name == cat_name).first()
+                    if not category:
+                        category = DBCategory(name=cat_name)
+                        session.add(category)
+                        session.flush()
+                    final_category_id = category.id
+
+            # Handle tags
+            tag_list = []
+            if tags:
+                try:
+                    tag_list = json.loads(tags)
+                except:
+                    tag_list = [t.strip() for t in tags.split(',') if t.strip()]
+
+            from .database import Tag as DBTag
             with state.db.session_scope() as session:
-                category = session.query(DBCategory).filter(DBCategory.name == cat_name).first()
-                if not category:
-                    category = DBCategory(name=cat_name)
-                    session.add(category)
-                    session.flush()
-                final_category_id = category.id
-
-        # Handle tags
-        tag_list = []
-        if tags:
-            try:
-                tag_list = json.loads(tags)
-            except:
-                tag_list = [t.strip() for t in tags.split(',') if t.strip()]
-
-        from .database import Tag as DBTag
-        with state.db.session_scope() as session:
-            tag_objs = []
-            for tname in tag_list:
-                tag = session.query(DBTag).filter(DBTag.name == tname).first()
-                if not tag:
-                    tag = DBTag(name=tname)
-                    session.add(tag)
-                    session.flush()
-                tag_objs.append(tag)
-            
-            db_file = DBFile(
-                id=file_id, 
-                filename=file.filename, 
-                size=total_size, 
-                duration=duration,
-                thumbnail_data=thumbnail,
-                category_id=final_category_id,
-                metadata_created_at=creation_date,
-                artist=artist,
-                source_url=source_url
-            )
-            if tag_objs:
-                db_file.tags = tag_objs
-            session.add(db_file)
+                tag_objs = []
+                for tname in tag_list:
+                    tag = session.query(DBTag).filter(DBTag.name == tname).first()
+                    if not tag:
+                        tag = DBTag(name=tname)
+                        session.add(tag)
+                        session.flush()
+                    tag_objs.append(tag)
+                
+                db_file = DBFile(
+                    id=file_id, 
+                    filename=file.filename, 
+                    size=total_size, 
+                    duration=duration,
+                    thumbnail_data=thumbnail,
+                    category_id=final_category_id,
+                    metadata_created_at=creation_date,
+                    artist=artist,
+                    source_url=source_url
+                )
+                if tag_objs:
+                    db_file.tags = tag_objs
+                session.add(db_file)
         
         return {"id": file_id, "filename": file.filename}
     finally:
