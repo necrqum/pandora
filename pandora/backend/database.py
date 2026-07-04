@@ -18,8 +18,8 @@ Base = declarative_base()
 file_tag_association = Table(
     'file_tag',
     Base.metadata,
-    Column('file_id', String, ForeignKey('files.id')),
-    Column('tag_id', Integer, ForeignKey('tags.id')),
+    Column('file_id', String, ForeignKey('files.id', ondelete='CASCADE')),
+    Column('tag_id', Integer, ForeignKey('tags.id', ondelete='CASCADE')),
     Column('position', Integer, default=0) # Controls tag hierarchy/order
 )
 

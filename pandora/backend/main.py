@@ -264,7 +264,7 @@ class BatchCategoryRequest(BaseModel):
     file_ids: List[str]
     category_id: Optional[int]
 
-class BatchDeleteRequest(BaseModel):
+class BatchRequest(BaseModel):
     file_ids: List[str]
 
 # --- Dependency ---
@@ -316,13 +316,41 @@ def batch_update_category(req: BatchCategoryRequest):
     return {"status": "ok", "count": len(req.file_ids)}
 
 @app.post("/api/files/batch/delete", dependencies=[Depends(require_unlocked)])
-def batch_delete_files(req: BatchDeleteRequest):
+def batch_delete(req: BatchRequest):
     with state.db.session_scope() as session:
         files = session.query(DBFile).filter(DBFile.id.in_(req.file_ids)).all()
         for f in files:
             state.vault.delete_file(f.id)
             session.delete(f)
-    return {"status": "ok", "count": len(req.file_ids)}
+    return {"status": "ok", "processed": len(files)}
+
+@app.post("/api/files/batch/scrape", dependencies=[Depends(require_unlocked)])
+def batch_scrape(req: BatchRequest, background_tasks: BackgroundTasks):
+    from .scrapers.ytdlp_engine import fetch_metadata
+    
+    def run_batch_scrape(file_ids):
+        with state.db.session_scope() as session:
+            for file_id in file_ids:
+                f = session.query(DBFile).filter(DBFile.id == file_id).first()
+                if f and f.source_url:
+                    meta = fetch_metadata(f.source_url)
+                    if meta:
+                        if meta.get("uploader"):
+                            f.artist = meta["uploader"]
+                        if meta.get("tags"):
+                            from .database import Tag as DBTag
+                            for tag_name in meta["tags"][:5]:
+                                tag_name = tag_name.strip()
+                                if not tag_name: continue
+                                db_tag = session.query(DBTag).filter(DBTag.name == tag_name).first()
+                                if not db_tag:
+                                    db_tag = DBTag(name=tag_name)
+                                    session.add(db_tag)
+                                if db_tag not in f.tags:
+                                    f.tags.append(db_tag)
+                        session.commit()
+    background_tasks.add_task(run_batch_scrape, req.file_ids)
+    return {"status": "ok"}
 
 # --- Routes ---
 @app.get("/api/setup/status")
@@ -444,24 +472,28 @@ def change_password(req: PasswordChangeRequest):
     except WeakPasswordError as e:
         raise HTTPException(status_code=400, detail=str(e))
 
+from fastapi import BackgroundTasks
+
 @app.post("/api/server/shutdown", dependencies=[Depends(require_unlocked)])
-def shutdown_server():
+def shutdown_server(background_tasks: BackgroundTasks):
     if state.logger:
         state.logger.info("Shutdown requested via API.")
-    # Use a separate thread to avoid blocking the response
-    import threading
-    threading.Timer(1.0, lambda: os.kill(os.getpid(), signal.SIGINT)).start()
+    def do_shutdown():
+        import time, os, signal
+        time.sleep(0.5)
+        os.kill(os.getpid(), signal.SIGINT)
+    background_tasks.add_task(do_shutdown)
     return {"status": "shutting down"}
 
 @app.post("/api/server/restart", dependencies=[Depends(require_unlocked)])
-def restart_server():
+def restart_server(background_tasks: BackgroundTasks):
     if state.logger:
         state.logger.info("Restart requested via API.")
-    import threading
     def restart():
-        time.sleep(1)
+        import time, os, sys
+        time.sleep(0.5)
         os.execv(sys.executable, [sys.executable] + sys.argv)
-    threading.Timer(0.1, restart).start()
+    background_tasks.add_task(restart)
     return {"status": "restarting"}
 
 @app.get("/api/settings/storage", dependencies=[Depends(require_unlocked)])

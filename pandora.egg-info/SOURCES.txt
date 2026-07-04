@@ -3,6 +3,7 @@ MANIFEST.in
 README.md
 setup.py
 pandora/__init__.py
+pandora/__main__.py
 pandora.egg-info/PKG-INFO
 pandora.egg-info/SOURCES.txt
 pandora.egg-info/dependency_links.txt
@@ -11,10 +12,14 @@ pandora.egg-info/requires.txt
 pandora.egg-info/top_level.txt
 pandora/backend/__init__.py
 pandora/backend/database.py
+pandora/backend/exceptions.py
+pandora/backend/logging_config.py
 pandora/backend/main.py
 pandora/backend/security.py
+pandora/backend/thumbnails.py
 pandora/backend/vault.py
 pandora/backend/scrapers/__init__.py
+pandora/backend/scrapers/ytdlp_engine.py
 pandora/frontend/__init__.py
 pandora/frontend/index.html
 pandora/frontend/scripts/main.js

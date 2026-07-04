@@ -42,6 +42,16 @@ const importStatusText = document.getElementById('import-status-text');
 const importUrlInput = document.getElementById('import-url-input');
 const importUrlBtn = document.getElementById('import-url-btn');
 
+let autoScrapeEnabled = localStorage.getItem('pandora_autoscrape') !== 'false';
+const settingAutoScrape = document.getElementById('setting-autoscrape');
+if (settingAutoScrape) {
+    settingAutoScrape.checked = autoScrapeEnabled;
+    settingAutoScrape.addEventListener('change', (e) => {
+        autoScrapeEnabled = e.target.checked;
+        localStorage.setItem('pandora_autoscrape', autoScrapeEnabled);
+    });
+}
+
 const activeTasksIndicator = document.getElementById('active-tasks-indicator');
 const activeTasksText = document.getElementById('active-tasks-text');
 let activeTasks = [];
@@ -158,6 +168,7 @@ const bulkTagBtn = document.getElementById('bulk-tag-btn');
 const bulkUntagBtn = document.getElementById('bulk-untag-btn');
 const bulkCatBtn = document.getElementById('bulk-cat-btn');
 const bulkDeleteBtn = document.getElementById('bulk-delete-btn');
+const bulkScrapeBtn = document.getElementById('bulk-scrape-btn');
 const clearSelectionBtn = document.getElementById('clear-selection-btn');
 
 const renameModal = document.getElementById('rename-modal');
@@ -843,6 +854,20 @@ bulkDeleteBtn.onclick = async () => {
     await batchRequest('/api/files/batch/delete', { file_ids: Array.from(selectedFileIds) });
 };
 
+bulkScrapeBtn.onclick = async () => {
+    if (!confirm(`Scrape metadata from source URLs for ${selectedFileIds.size} files?`)) return;
+    bulkScrapeBtn.disabled = true;
+    bulkScrapeBtn.textContent = '...';
+    try {
+        await batchRequest('/api/files/batch/scrape', { file_ids: Array.from(selectedFileIds) });
+    } catch(e) {
+        alert('Scrape failed: ' + e);
+    } finally {
+        bulkScrapeBtn.disabled = false;
+        bulkScrapeBtn.textContent = 'Scrape Metadata';
+    }
+};
+
 async function batchRequest(url, body, method = 'POST') {
     try {
         const res = await fetch(url, {
@@ -1050,13 +1075,21 @@ purgeEverythingBtn.onclick = async () => {
 
 restartBtn.onclick = async () => {
     if (!confirm('Restart server?')) return;
-    try { await fetch('/api/server/restart', {method: 'POST'}); alert('Server restarting...'); location.reload(); } catch(e) {}
+    try { 
+        const res = await fetch('/api/server/restart', {method: 'POST'}); 
+        if (!res.ok) throw new Error(await res.text());
+        alert('Server restarting...'); 
+        location.reload(); 
+    } catch(e) {
+        alert('Restart failed: ' + e);
+    }
 };
 
 shutdownBtn.onclick = async () => {
     if (!confirm('Shutdown server?')) return;
     try { 
-        await fetch('/api/server/shutdown', {method: 'POST'}); 
+        const res = await fetch('/api/server/shutdown', {method: 'POST'}); 
+        if (!res.ok) throw new Error(await res.text());
         document.body.innerHTML = `
             <div style="display:flex;justify-content:center;align-items:center;height:100vh;flex-direction:column;font-family:sans-serif;background:#1a1a1a;color:white;">
                 <h1 style="color:#ff4444;">Server Shutting Down</h1>
@@ -1064,7 +1097,9 @@ shutdownBtn.onclick = async () => {
                 <p>You can close this tab now.</p>
             </div>
         `;
-    } catch(e) {}
+    } catch(e) {
+        alert('Shutdown failed: ' + e);
+    }
 };
 
 async function generateThumbnail(file) {
@@ -1140,10 +1175,10 @@ function openImportModal(mode, data) {
                 id: i,
                 url: data.url,
                 playlist_index: entry.playlist_index,
-                filename: `${entry.title || 'video'}.${entry.ext || 'mp4'}`,
+                filename: autoScrapeEnabled ? `${entry.title || 'video'}.${entry.ext || 'mp4'}` : `video_${i+1}.${entry.ext || 'mp4'}`,
                 categoryId: null,
-                tags: new Set(entry.tags ? entry.tags.slice(0, 5) : []),
-                artist: entry.uploader || '',
+                tags: autoScrapeEnabled ? new Set(entry.tags ? entry.tags.slice(0, 5) : []) : new Set(),
+                artist: autoScrapeEnabled ? (entry.uploader || '') : '',
                 source_url: entry.webpage_url || data.url,
                 selected: true,
                 mode: 'url',
@@ -1154,10 +1189,10 @@ function openImportModal(mode, data) {
             importQueue = [{
                 id: 0,
                 url: data.url,
-                filename: `${data.title || 'video'}.${data.ext || 'mp4'}`,
+                filename: autoScrapeEnabled ? `${data.title || 'video'}.${data.ext || 'mp4'}` : `video.${data.ext || 'mp4'}`,
                 categoryId: null,
-                tags: new Set(data.tags ? data.tags.slice(0, 5) : []),
-                artist: data.uploader || '',
+                tags: autoScrapeEnabled ? new Set(data.tags ? data.tags.slice(0, 5) : []) : new Set(),
+                artist: autoScrapeEnabled ? (data.uploader || '') : '',
                 source_url: data.url,
                 selected: true,
                 mode: 'url',
@@ -1434,6 +1469,35 @@ function playFile(id, filename) {
     playerSourceUrl.value = file ? (file.source_url || '') : '';
     let tempTags = file ? [...file.tags] : [];
 
+    const playerFetchMetaBtn = document.getElementById('player-fetch-meta-btn');
+    playerFetchMetaBtn.onclick = async () => {
+        const url = playerSourceUrl.value.trim();
+        if (!url) { alert('Please enter a source URL first.'); return; }
+        playerFetchMetaBtn.disabled = true;
+        playerFetchMetaBtn.textContent = '...';
+        try {
+            const res = await fetch(`/api/import/preview?url=${encodeURIComponent(url)}`);
+            if (res.ok) {
+                const meta = await res.json();
+                if (meta.uploader) playerArtist.value = meta.uploader;
+                if (meta.tags) {
+                    const currentTagSet = new Set(tempTags);
+                    meta.tags.slice(0, 5).forEach(t => {
+                        if (!currentTagSet.has(t)) tempTags.push(t);
+                    });
+                    renderPlayerTags();
+                }
+            } else {
+                alert('Failed to fetch metadata: ' + await res.text());
+            }
+        } catch(e) {
+            alert('Error fetching metadata: ' + e);
+        } finally {
+            playerFetchMetaBtn.disabled = false;
+            playerFetchMetaBtn.textContent = 'Scrape';
+        }
+    };
+
     function renderPlayerTags() {
         playerTagsList.innerHTML = tempTags.map((t, i) => `
             <div class="folder-row" style="padding: 0.4rem 0.75rem; background: rgba(255,255,255,0.05);">
@@ -1557,7 +1621,13 @@ window.deleteFile = async (id) => {
     if (!confirm('Permanently delete?')) return;
     try {
         const res = await fetch(`/api/files/${id}`, { method: 'DELETE' });
-        if (res.ok) await Promise.all([loadFiles(), loadCategories()]);
-    } catch(e) {}
+        if (res.ok) {
+            await Promise.all([loadFiles(), loadCategories()]);
+        } else {
+            alert('Delete failed: ' + await res.text());
+        }
+    } catch(e) {
+        alert('Delete failed: ' + e);
+    }
 };
 checkSetupStatus();
