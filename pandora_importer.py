@@ -228,7 +228,15 @@ class PandoraImporter:
             self.new_tag_var.set("")
 
     def select_all_files(self, event=None):
-        self.listbox.selection_set(0, tk.END)
+        total = self.listbox.size()
+        if total == 0:
+            return "break"
+            
+        selected = self.listbox.curselection()
+        if len(selected) == total:
+            self.listbox.selection_clear(0, tk.END)
+        else:
+            self.listbox.selection_set(0, tk.END)
         return "break"
         
     def remove_selected_files(self, event=None):
