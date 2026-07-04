@@ -282,32 +282,32 @@ def batch_update_tags(req: BatchTagsRequest):
     from .database import Tag as DBTag
     with db_write_lock:
         with state.db.session_scope() as session:
-        files = session.query(DBFile).filter(DBFile.id.in_(req.file_ids)).all()
-        if not files: return {"status": "ok", "count": 0}
-        
-        # Pre-load or create tags
-        new_tag_objs = []
-        for tag_name in req.tags:
-            tag_name = tag_name.strip()
-            if not tag_name: continue
-            tag = session.query(DBTag).filter(DBTag.name == tag_name).first()
-            if not tag:
-                tag = DBTag(name=tag_name)
-                session.add(tag)
-                session.flush() # Ensure it has an ID
-            new_tag_objs.append(tag)
+            files = session.query(DBFile).filter(DBFile.id.in_(req.file_ids)).all()
+            if not files: return {"status": "ok", "count": 0}
             
-        for db_file in files:
-            if req.action == "set":
-                db_file.tags = list(new_tag_objs)
-            elif req.action == "add":
-                current_tag_ids = {t.id for t in db_file.tags}
-                for nt in new_tag_objs:
-                    if nt.id not in current_tag_ids:
-                        db_file.tags.append(nt)
-            elif req.action == "remove":
-                remove_ids = {t.id for t in new_tag_objs}
-                db_file.tags = [t for t in db_file.tags if t.id not in remove_ids]
+            # Pre-load or create tags
+            new_tag_objs = []
+            for tag_name in req.tags:
+                tag_name = tag_name.strip()
+                if not tag_name: continue
+                tag = session.query(DBTag).filter(DBTag.name == tag_name).first()
+                if not tag:
+                    tag = DBTag(name=tag_name)
+                    session.add(tag)
+                    session.flush() # Ensure it has an ID
+                new_tag_objs.append(tag)
+                
+            for db_file in files:
+                if req.action == "set":
+                    db_file.tags = list(new_tag_objs)
+                elif req.action == "add":
+                    current_tag_ids = {t.id for t in db_file.tags}
+                    for nt in new_tag_objs:
+                        if nt.id not in current_tag_ids:
+                            db_file.tags.append(nt)
+                elif req.action == "remove":
+                    remove_ids = {t.id for t in new_tag_objs}
+                    db_file.tags = [t for t in db_file.tags if t.id not in remove_ids]
                 
     return {"status": "ok", "count": len(req.file_ids)}
 
@@ -335,25 +335,25 @@ def batch_scrape(req: BatchRequest, background_tasks: BackgroundTasks):
     def run_batch_scrape(file_ids):
         with db_write_lock:
             with state.db.session_scope() as session:
-            for file_id in file_ids:
-                f = session.query(DBFile).filter(DBFile.id == file_id).first()
-                if f and f.source_url:
-                    meta = fetch_metadata(f.source_url)
-                    if meta:
-                        if meta.get("uploader"):
-                            f.artist = meta["uploader"]
-                        if meta.get("tags"):
-                            from .database import Tag as DBTag
-                            for tag_name in meta["tags"][:5]:
-                                tag_name = tag_name.strip()
-                                if not tag_name: continue
-                                db_tag = session.query(DBTag).filter(DBTag.name == tag_name).first()
-                                if not db_tag:
-                                    db_tag = DBTag(name=tag_name)
-                                    session.add(db_tag)
-                                if db_tag not in f.tags:
-                                    f.tags.append(db_tag)
-                        session.commit()
+                for file_id in file_ids:
+                    f = session.query(DBFile).filter(DBFile.id == file_id).first()
+                    if f and f.source_url:
+                        meta = fetch_metadata(f.source_url)
+                        if meta:
+                            if meta.get("uploader"):
+                                f.artist = meta["uploader"]
+                            if meta.get("tags"):
+                                from .database import Tag as DBTag
+                                for tag_name in meta["tags"][:5]:
+                                    tag_name = tag_name.strip()
+                                    if not tag_name: continue
+                                    db_tag = session.query(DBTag).filter(DBTag.name == tag_name).first()
+                                    if not db_tag:
+                                        db_tag = DBTag(name=tag_name)
+                                        session.add(db_tag)
+                                    if db_tag not in f.tags:
+                                        f.tags.append(db_tag)
+                            session.commit()
     background_tasks.add_task(run_batch_scrape, req.file_ids)
     return {"status": "ok"}
 
@@ -645,32 +645,32 @@ def run_import_task(task_id: str, req: URLImportRequest):
         
         with db_write_lock:
             with state.db.session_scope() as session:
-            # Handle tags
-            tag_objs = []
-            for tname in req.tags:
-                tname = tname.strip()
-                if not tname: continue
-                tag = session.query(DBTag).filter(DBTag.name == tname).first()
-                if not tag:
-                    tag = DBTag(name=tname)
-                    session.add(tag)
-                    session.flush()
-                tag_objs.append(tag)
-            
-            db_file = DBFile(
-                id=file_id,
-                filename=filename,
-                size=total_size,
-                duration=duration,
-                category_id=req.category_id,
-                thumbnail_data=thumbnail_b64,
-                source_url=req.source_url or req.url,
-                artist=req.artist or meta.get('uploader')
-            )
-            if tag_objs:
-                db_file.tags = tag_objs
+                # Handle tags
+                tag_objs = []
+                for tname in req.tags:
+                    tname = tname.strip()
+                    if not tname: continue
+                    tag = session.query(DBTag).filter(DBTag.name == tname).first()
+                    if not tag:
+                        tag = DBTag(name=tname)
+                        session.add(tag)
+                        session.flush()
+                    tag_objs.append(tag)
                 
-            session.add(db_file)
+                db_file = DBFile(
+                    id=file_id,
+                    filename=filename,
+                    size=total_size,
+                    duration=duration,
+                    category_id=req.category_id,
+                    thumbnail_data=thumbnail_b64,
+                    source_url=req.source_url or req.url,
+                    artist=req.artist or meta.get('uploader')
+                )
+                if tag_objs:
+                    db_file.tags = tag_objs
+                    
+                session.add(db_file)
             
         import_tasks[task_id] = {"status": "completed", "id": file_id, "filename": filename}
     except Exception as e:
