@@ -61,7 +61,7 @@ class PandoraImporter:
         self.db = None
         self.vault = None
         self.paths = get_vault_paths()
-        self.files_to_import = []
+        self.files_to_import = sys.argv[1:] if len(sys.argv) > 1 else []
         
         self.build_login_ui()
 
@@ -142,6 +142,11 @@ class PandoraImporter:
         if DND_AVAILABLE:
             self.listbox.drop_target_register(DND_FILES)
             self.listbox.dnd_bind('<<Drop>>', self.on_drop_files)
+            
+        # Add any files passed from CLI (like Nemo actions)
+        if self.files_to_import:
+            for f in self.files_to_import:
+                self.listbox.insert(tk.END, f)
         
         # Settings Section
         options_frame = ttk.LabelFrame(self.main_frame, text="Import Settings", padding="10")
@@ -253,12 +258,36 @@ class PandoraImporter:
                 self.listbox.insert(tk.END, path)
 
     def select_files(self):
-        files = filedialog.askopenfilenames()
+        try:
+            if sys.platform.startswith('linux'):
+                import subprocess
+                result = subprocess.run(['zenity', '--file-selection', '--multiple', '--separator=|'], capture_output=True, text=True)
+                if result.returncode == 0 and result.stdout.strip():
+                    files = result.stdout.strip().split('|')
+                else:
+                    return
+            else:
+                files = filedialog.askopenfilenames()
+        except Exception:
+            files = filedialog.askopenfilenames()
+            
         for f in files:
             self._add_file_or_folder(f)
                 
     def select_folder(self):
-        folder = filedialog.askdirectory()
+        try:
+            if sys.platform.startswith('linux'):
+                import subprocess
+                result = subprocess.run(['zenity', '--file-selection', '--directory'], capture_output=True, text=True)
+                if result.returncode == 0 and result.stdout.strip():
+                    folder = result.stdout.strip()
+                else:
+                    return
+            else:
+                folder = filedialog.askdirectory()
+        except Exception:
+            folder = filedialog.askdirectory()
+            
         if folder:
             self._add_file_or_folder(folder)
                         

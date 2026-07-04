@@ -69,13 +69,11 @@ class DatabaseManager:
         db_url = f"sqlite+pysqlcipher://:{encoded_password}@/{os.path.abspath(db_path)}"
 
         try:
-            from sqlalchemy.pool import QueuePool
+            from sqlalchemy.pool import NullPool
             self.engine = create_engine(
                 db_url,
                 module=sqlcipher3,
-                poolclass=QueuePool,
-                pool_size=10,
-                max_overflow=20,
+                poolclass=NullPool,
                 connect_args={"check_same_thread": False}
             )
             

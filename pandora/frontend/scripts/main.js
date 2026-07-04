@@ -1126,36 +1126,32 @@ shutdownBtn.onclick = async () => {
 
 async function generateThumbnail(file) {
     return new Promise((resolve) => {
+        // Skip client-side generation for videos to prevent browser memory exhaustion/freezes during mass imports.
+        // The backend uses FFmpeg which is much safer and faster for large media files.
+        if (!file.type.startsWith('image/')) {
+            resolve(null);
+            return;
+        }
+
         const url = URL.createObjectURL(file);
         const canvas = document.createElement('canvas');
         const ctx = canvas.getContext('2d');
         const maxSize = 200;
         let resolved = false;
         const safeResolve = (val) => { if (!resolved) { resolved = true; resolve(val); } };
+        
         setTimeout(() => { URL.revokeObjectURL(url); safeResolve(null); }, 3000);
-        if (file.type.startsWith('image/')) {
-            const img = new Image();
-            img.onload = () => {
-                const scale = Math.min(maxSize / img.width, maxSize / img.height);
-                canvas.width = img.width * scale; canvas.height = img.height * scale;
-                ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
-                URL.revokeObjectURL(url); safeResolve(canvas.toDataURL('image/jpeg', 0.6));
-            };
-            img.onerror = () => { URL.revokeObjectURL(url); safeResolve(null); };
-            img.src = url;
-        } else if (file.type.startsWith('video/')) {
-            const video = document.createElement('video');
-            video.muted = true; video.preload = 'metadata'; video.playsInline = true;
-            video.onloadedmetadata = () => { video.currentTime = Math.min(1, video.duration / 2 || 1); };
-            video.onseeked = () => {
-                const scale = Math.min(maxSize / video.videoWidth, maxSize / video.videoHeight);
-                canvas.width = video.videoWidth * scale; canvas.height = video.videoHeight * scale;
-                ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-                URL.revokeObjectURL(url); safeResolve(canvas.toDataURL('image/jpeg', 0.6));
-            };
-            video.onerror = () => { URL.revokeObjectURL(url); safeResolve(null); };
-            video.src = url; video.load();
-        } else safeResolve(null);
+        
+        const img = new Image();
+        img.onload = () => {
+            const scale = Math.min(maxSize / img.width, maxSize / img.height);
+            canvas.width = img.width * scale; canvas.height = img.height * scale;
+            ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+            URL.revokeObjectURL(url); 
+            safeResolve(canvas.toDataURL('image/jpeg', 0.6));
+        };
+        img.onerror = () => { URL.revokeObjectURL(url); safeResolve(null); };
+        img.src = url;
     });
 }
 
