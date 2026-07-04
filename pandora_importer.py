@@ -11,10 +11,10 @@ from pathlib import Path
 # Ensure pandora modules can be imported
 sys.path.insert(0, os.path.abspath(os.path.dirname(__file__)))
 
-from pandora.pandora.backend.security import VaultSecurity, WeakPasswordError
-from pandora.pandora.backend.database import DatabaseManager, File as DBFile, Category as DBCategory, Tag as DBTag
-from pandora.pandora.backend.vault import VaultManager, CHUNK_SIZE
-from pandora.pandora.backend.thumbnails import generate_thumbnail_from_file, get_file_creation_date
+from pandora.backend.security import VaultSecurity, WeakPasswordError
+from pandora.backend.database import DatabaseManager, File as DBFile, Category as DBCategory, Tag as DBTag
+from pandora.backend.vault import VaultManager, CHUNK_SIZE
+from pandora.backend.thumbnails import generate_thumbnail_from_file, get_file_creation_date
 
 def get_vault_paths():
     config_path = os.path.expanduser("~/.pandora_config")
