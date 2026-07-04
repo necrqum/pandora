@@ -69,19 +69,20 @@ class DatabaseManager:
         db_url = f"sqlite+pysqlcipher://:{encoded_password}@/{os.path.abspath(db_path)}"
 
         try:
-            from sqlalchemy.pool import NullPool
+            from sqlalchemy.pool import QueuePool
             self.engine = create_engine(
                 db_url,
                 module=sqlcipher3,
-                poolclass=NullPool,
+                poolclass=QueuePool,
+                pool_size=10,
+                max_overflow=20,
                 connect_args={"check_same_thread": False}
             )
             
-            # Enable WAL mode and busy timeout for better concurrency
+            # Enable busy timeout and tuning for better concurrency
             @event.listens_for(self.engine, "connect")
             def set_sqlite_pragma(dbapi_connection, connection_record):
                 cursor = dbapi_connection.cursor()
-                cursor.execute("PRAGMA journal_mode=WAL")
                 cursor.execute("PRAGMA synchronous=NORMAL")
                 cursor.execute("PRAGMA busy_timeout=30000") # 30 seconds
                 cursor.execute("PRAGMA cache_size=-64000") # 64MB cache
@@ -102,6 +103,8 @@ class DatabaseManager:
             DatabaseConnectionError: If the schema cannot be created.
         """
         try:
+            with self.engine.begin() as conn:
+                conn.execute(text("PRAGMA journal_mode=WAL"))
             Base.metadata.create_all(bind=self.engine)
             # Ensure new columns exist on older databases
             with self.engine.begin() as conn:

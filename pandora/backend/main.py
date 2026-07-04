@@ -18,6 +18,8 @@ import mimetypes
 import threading
 
 db_write_lock = threading.Lock()
+# Semaphore to limit max concurrent heavy processes (FFmpeg + AES encryption)
+processing_semaphore = threading.Semaphore(4)
 
 from .security import VaultSecurity
 from .database import DatabaseManager, File as DBFile, Category as DBCategory
@@ -708,19 +710,20 @@ def upload_file(
         with open(temp_path, "wb") as f:
             shutil.copyfileobj(file.file, f)
         duration = None
-        if not thumbnail:
-            thumbnail, duration = generate_thumbnail_from_file(temp_path, file.filename)
-            
-        creation_date = get_file_creation_date(temp_path)
+        with processing_semaphore:
+            if not thumbnail:
+                thumbnail, duration = generate_thumbnail_from_file(temp_path, file.filename)
+                
+            creation_date = get_file_creation_date(temp_path)
 
-        def file_iterator():
-            with open(temp_path, "rb") as f:
-                while True:
-                    chunk = f.read(CHUNK_SIZE)
-                    if not chunk: break
-                    yield chunk
+            def file_iterator():
+                with open(temp_path, "rb") as f:
+                    while True:
+                        chunk = f.read(CHUNK_SIZE)
+                        if not chunk: break
+                        yield chunk
 
-        file_id, total_size = state.vault.store_file(file_iterator())
+            file_id, total_size = state.vault.store_file(file_iterator())
         
         # Determine category
         final_category_id = category_id
