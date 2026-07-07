@@ -16,6 +16,7 @@ from fastapi.responses import JSONResponse
 import time
 import mimetypes
 import threading
+import hashlib
 
 db_write_lock = threading.Lock()
 # Semaphore to limit max concurrent heavy processes (FFmpeg + AES encryption)
@@ -40,10 +41,21 @@ class AppState:
     active_sessions: set = set()
     logger: Optional[object] = None
     config_path: str = os.path.expanduser("~/.pandora_config")
+    # Duplicate handling: 'skip' | 'replace' | 'allow'
+    duplicate_mode: str = "skip"
 
 state = AppState()
 
 import_tasks = {}
+
+def compute_file_hash(path: str) -> str:
+    """Compute SHA-256 hash of a file on disk."""
+    h = hashlib.sha256()
+    with open(path, "rb") as f:
+        for chunk in iter(lambda: f.read(4 * 1024 * 1024), b""):
+            h.update(chunk)
+    return h.hexdigest()
+
 
 def setup_vault_paths(config_dir: str, blob_dir: Optional[str] = None):
     state.config_dir = os.path.abspath(config_dir)
@@ -597,6 +609,66 @@ def export_vault(req: ExportRequest):
 
     return {"status": "ok", "exported_count": count}
 
+@app.get("/api/settings/duplicate-mode", dependencies=[Depends(require_unlocked)])
+def get_duplicate_mode():
+    return {"mode": state.duplicate_mode}
+
+@app.post("/api/settings/duplicate-mode", dependencies=[Depends(require_unlocked)])
+def set_duplicate_mode(body: dict):
+    mode = body.get("mode", "skip")
+    if mode not in ("skip", "replace", "allow"):
+        raise HTTPException(status_code=400, detail="mode must be 'skip', 'replace', or 'allow'")
+    state.duplicate_mode = mode
+    return {"mode": state.duplicate_mode}
+
+# --- Hash Backfill (for files imported before duplicate detection existed) ---
+_backfill_status = {"running": False, "done": 0, "total": 0, "errors": 0}
+
+def _run_backfill():
+    global _backfill_status
+    _backfill_status["running"] = True
+    _backfill_status["errors"] = 0
+    try:
+        with state.db.session_scope() as session:
+            files_needing_hash = session.query(DBFile).filter(DBFile.file_hash == None).all()
+            ids_and_names = [(f.id, f.filename) for f in files_needing_hash]
+        
+        _backfill_status["total"] = len(ids_and_names)
+        _backfill_status["done"] = 0
+        
+        for file_id, filename in ids_and_names:
+            try:
+                h = hashlib.sha256()
+                for chunk in state.vault.stream_file(file_id):
+                    h.update(chunk)
+                file_hash = h.hexdigest()
+                
+                with db_write_lock:
+                    with state.db.session_scope() as session:
+                        f = session.query(DBFile).filter(DBFile.id == file_id).first()
+                        if f:
+                            f.file_hash = file_hash
+                
+                _backfill_status["done"] += 1
+            except Exception as e:
+                state.logger.warning(f"Backfill hash failed for {filename}: {e}")
+                _backfill_status["errors"] += 1
+                _backfill_status["done"] += 1
+    finally:
+        _backfill_status["running"] = False
+
+@app.post("/api/settings/backfill-hashes", dependencies=[Depends(require_unlocked)])
+def start_backfill_hashes(background_tasks: BackgroundTasks):
+    if _backfill_status["running"]:
+        raise HTTPException(status_code=409, detail="Backfill already running")
+    background_tasks.add_task(_run_backfill)
+    return {"status": "started"}
+
+@app.get("/api/settings/backfill-hashes/status", dependencies=[Depends(require_unlocked)])
+def get_backfill_status():
+    return _backfill_status
+
+
 @app.get("/api/import/preview", dependencies=[Depends(require_unlocked)])
 def import_preview(url: str):
     from .scrapers.ytdlp_engine import fetch_metadata
@@ -643,7 +715,58 @@ def run_import_task(task_id: str, req: URLImportRequest):
                 state.logger.warning(f"Failed to download thumbnail from {meta['thumbnail_url']}: {e}")
         
         temp_dir = os.path.join(state.config_dir, "temp")
-        file_id, total_size = state.vault.store_file(download_stream(req.url, temp_dir, playlist_index=req.playlist_index))
+        
+        # Download to temp first so we can hash it for dedup
+        import tempfile
+        tmp_fd, tmp_path = tempfile.mkstemp(dir=temp_dir)
+        os.close(tmp_fd)
+        try:
+            with open(tmp_path, "wb") as fout:
+                for chunk in download_stream(req.url, temp_dir, playlist_index=req.playlist_index):
+                    fout.write(chunk)
+            
+            file_hash = compute_file_hash(tmp_path)
+            
+            # --- Duplicate check ---
+            existing_id = None
+            existing_filename = None
+            with state.db.session_scope() as session:
+                existing = session.query(DBFile).filter(DBFile.file_hash == file_hash).first()
+                if existing:
+                    existing_id = existing.id
+                    existing_filename = existing.filename
+            
+            if existing_id:
+                mode = state.duplicate_mode
+                if mode == "skip":
+                    import_tasks[task_id] = {
+                        "status": "skipped",
+                        "reason": "duplicate",
+                        "existing_id": existing_id,
+                        "existing_filename": existing_filename
+                    }
+                    return
+                elif mode == "replace":
+                    state.vault.delete_file(existing_id)
+                    with db_write_lock:
+                        with state.db.session_scope() as session:
+                            old = session.query(DBFile).filter(DBFile.id == existing_id).first()
+                            if old:
+                                session.delete(old)
+                # mode == "allow": fall through and just add it again
+            
+            def _iter_tmp():
+                with open(tmp_path, "rb") as f:
+                    while True:
+                        chunk = f.read(4 * 1024 * 1024)
+                        if not chunk:
+                            break
+                        yield chunk
+            
+            file_id, total_size = state.vault.store_file(_iter_tmp())
+        finally:
+            if os.path.exists(tmp_path):
+                os.remove(tmp_path)
         
         with db_write_lock:
             with state.db.session_scope() as session:
@@ -667,7 +790,8 @@ def run_import_task(task_id: str, req: URLImportRequest):
                     category_id=req.category_id,
                     thumbnail_data=thumbnail_b64,
                     source_url=req.source_url or req.url,
-                    artist=req.artist or meta.get('uploader')
+                    artist=req.artist or meta.get('uploader'),
+                    file_hash=file_hash
                 )
                 if tag_objs:
                     db_file.tags = tag_objs
@@ -709,6 +833,35 @@ def upload_file(
     try:
         with open(temp_path, "wb") as f:
             shutil.copyfileobj(file.file, f)
+        
+        # Compute hash for duplicate detection
+        file_hash = compute_file_hash(temp_path)
+        
+        # --- Duplicate check ---
+        existing_id = None
+        existing_filename = None
+        with state.db.session_scope() as session:
+            existing = session.query(DBFile).filter(DBFile.file_hash == file_hash).first()
+            if existing:
+                existing_id = existing.id
+                existing_filename = existing.filename
+        
+        if existing_id:
+            mode = state.duplicate_mode
+            if mode == "skip":
+                return JSONResponse(
+                    status_code=409,
+                    content={"detail": "duplicate", "existing_id": existing_id, "existing_filename": existing_filename}
+                )
+            elif mode == "replace":
+                state.vault.delete_file(existing_id)
+                with db_write_lock:
+                    with state.db.session_scope() as session:
+                        old = session.query(DBFile).filter(DBFile.id == existing_id).first()
+                        if old:
+                            session.delete(old)
+            # mode == "allow": fall through
+        
         duration = None
         with processing_semaphore:
             if not thumbnail:
@@ -775,7 +928,8 @@ def upload_file(
                     category_id=final_category_id,
                     metadata_created_at=creation_date,
                     artist=artist,
-                    source_url=source_url
+                    source_url=source_url,
+                    file_hash=file_hash
                 )
                 if tag_objs:
                     db_file.tags = tag_objs

@@ -1011,8 +1011,74 @@ settingsBtn.onclick = async () => {
             document.getElementById('settings-blob-dir').textContent = data.blob_dir;
         }
     } catch (e) { console.error(e); }
+    // Load duplicate mode setting
+    try {
+        const res = await fetch('/api/settings/duplicate-mode');
+        if (res.ok) {
+            const data = await res.json();
+            document.getElementById('setting-duplicate-mode').value = data.mode;
+        }
+    } catch (e) { console.error(e); }
 };
+
+document.getElementById('setting-duplicate-mode').addEventListener('change', async (e) => {
+    try {
+        await fetch('/api/settings/duplicate-mode', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ mode: e.target.value })
+        });
+    } catch (err) { console.error(err); }
+});
+
 closeSettings.onclick = () => settingsModal.classList.remove('active');
+
+// --- Backfill hashes for old files ---
+document.getElementById('backfill-btn').addEventListener('click', async () => {
+    const btn = document.getElementById('backfill-btn');
+    const wrap = document.getElementById('backfill-progress-wrap');
+    const bar = document.getElementById('backfill-bar');
+    const statusText = document.getElementById('backfill-status-text');
+
+    btn.disabled = true;
+    wrap.style.display = 'block';
+    statusText.textContent = 'Starting scan...';
+    bar.style.width = '0%';
+
+    try {
+        const startRes = await fetch('/api/settings/backfill-hashes', { method: 'POST' });
+        if (!startRes.ok) {
+            const err = await startRes.json();
+            statusText.textContent = 'Error: ' + (err.detail || 'Failed to start');
+            btn.disabled = false;
+            return;
+        }
+    } catch (e) {
+        statusText.textContent = 'Network error starting backfill.';
+        btn.disabled = false;
+        return;
+    }
+
+    // Poll for progress
+    const pollInterval = setInterval(async () => {
+        try {
+            const res = await fetch('/api/settings/backfill-hashes/status');
+            if (!res.ok) return;
+            const data = await res.json();
+            const pct = data.total > 0 ? Math.round((data.done / data.total) * 100) : 0;
+            bar.style.width = `${pct}%`;
+            statusText.textContent = `Scanning: ${data.done} / ${data.total} files (${pct}%)${data.errors > 0 ? ` — ${data.errors} error(s)` : ''}`;
+
+            if (!data.running) {
+                clearInterval(pollInterval);
+                bar.style.width = '100%';
+                statusText.textContent = `✅ Done! ${data.done} files fingerprinted.${data.errors > 0 ? ` ${data.errors} error(s) — check logs.` : ''}`;
+                btn.disabled = false;
+                btn.textContent = '✅ Scan Complete';
+            }
+        } catch (e) { console.error(e); }
+    }, 1000);
+});
 
 async function openSecurePrompt(title, text) {
     return new Promise((resolve) => {
@@ -1229,20 +1295,32 @@ function renderImportQueue() {
     importQueueCount.textContent = importQueue.length;
     importQueueList.innerHTML = importQueue.map(item => {
         const thumb = item.thumbnail || (item.fileThumbnail ? item.fileThumbnail : '');
+        const isSkipped = item._skipped;
+        const isReplaced = item._replaced;
+
+        let statusBadge = '';
+        if (isSkipped) {
+            statusBadge = `<span title="Already in vault — will be skipped" style="font-size:0.65rem; background: rgba(180,150,0,0.25); color: #f0c040; border: 1px solid rgba(240,192,64,0.4); border-radius: 4px; padding: 1px 5px; flex-shrink:0;">⚠ EXISTS</span>`;
+        } else if (isReplaced) {
+            statusBadge = `<span title="Already in vault — will be replaced" style="font-size:0.65rem; background: rgba(220,100,0,0.25); color: #ff8c42; border: 1px solid rgba(255,140,66,0.4); border-radius: 4px; padding: 1px 5px; flex-shrink:0;">↩ REPLACE</span>`;
+        }
+
         return `
-            <div class="queue-item ${item.selected ? 'selected' : ''}" onclick="toggleQueueItem(${item.id})">
-                <input type="checkbox" ${item.selected ? 'checked' : ''} onclick="event.stopPropagation(); toggleQueueItem(${item.id})">
+            <div class="queue-item ${item.selected ? 'selected' : ''}" onclick="toggleQueueItem(${item.id})" style="${isSkipped ? 'opacity:0.45; pointer-events: none;' : ''}">
+                <input type="checkbox" ${item.selected ? 'checked' : ''} ${isSkipped ? 'disabled' : ''} onclick="event.stopPropagation(); toggleQueueItem(${item.id})">
                 <div style="width: 40px; height: 40px; border-radius: 4px; overflow: hidden; background: #000; flex-shrink: 0;">
-                    ${thumb ? `<img src="${thumb}" style="width: 100%; height: 100%; object-fit: cover;" />` : `<div style="display:flex;align-items:center;justify-content:center;height:100%;font-size:1.2rem;">${isImage(item.filename) ? '🖼️' : '🎬'}</div>`}
+                    ${thumb ? `<img src="${thumb}" style="width: 100%; height: 100%; object-fit: cover;" />` : `<div style="display:flex;align-items:center;justify-content:height:100%;font-size:1.2rem;">${isImage(item.filename) ? '🖼️' : '🎬'}</div>`}
                 </div>
                 <div style="flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 0.8rem;">
                     ${escapeHTML(item.filename)}
                 </div>
-                ${item.categoryId ? `<span class="category-count" style="font-size: 0.6rem; opacity: 1;">${categories.find(c=>c.id===item.categoryId)?.name || ''}</span>` : ''}
+                ${statusBadge}
+                ${!isSkipped && item.categoryId ? `<span class="category-count" style="font-size: 0.6rem; opacity: 1;">${categories.find(c=>c.id===item.categoryId)?.name || ''}</span>` : ''}
             </div>
         `;
     }).join('');
 }
+
 
 window.toggleQueueItem = (id) => {
     const item = importQueue.find(i => i.id === id);
@@ -1434,21 +1512,45 @@ importConfirmBtn.onclick = async () => {
             await new Promise((resolve, reject) => {
                 const xhr = new XMLHttpRequest();
                 xhr.open('POST', '/api/files');
-                xhr.onload = () => xhr.status === 200 ? resolve() : reject(new Error('Upload failed'));
+                xhr.onload = () => {
+                    if (xhr.status === 200) {
+                        resolve();
+                    } else if (xhr.status === 409) {
+                        // Duplicate detected
+                        try {
+                            const resp = JSON.parse(xhr.responseText);
+                            item._duplicateOf = resp.existing_filename || 'existing file';
+                        } catch {}
+                        // In 'replace' mode the server processes it, so this shouldn't happen
+                        // but if mode changed mid-import, treat as skipped
+                        item._skipped = true;
+                        resolve();
+                    } else {
+                        reject(new Error(`Upload failed (${xhr.status})`));
+                    }
+                };
                 xhr.onerror = () => reject(new Error('Network error'));
                 xhr.send(formData);
             });
         } catch (e) { console.error(e); }
+
+        // Re-render queue live so user sees status badges update
+        renderImportQueue();
     }
     
     importProgressBar.style.width = '100%';
-    importStatusText.textContent = 'Complete! Background tasks running...';
+    const skipped = selectedItems.filter(i => i._skipped);
+    if (skipped.length > 0) {
+        importStatusText.textContent = `Complete! ${skipped.length} duplicate(s) skipped. Check settings to change this.`;
+    } else {
+        importStatusText.textContent = 'Complete! Background tasks running...';
+    }
     setTimeout(() => {
         importModal.classList.remove('active');
         fileInput.value = '';
         document.getElementById('file-name-display').textContent = '';
         Promise.all([loadFiles(), loadCategories(), loadTags()]);
-    }, 1000);
+    }, skipped.length > 0 ? 3000 : 1000);
 };
 
 importUrlBtn.onclick = async () => {

@@ -875,6 +875,27 @@ li.active .category-count {
 
 .category-select:focus { border-color: var(--accent); }
 
+/* Global select/dropdown styling — ensures options are always readable in dark mode */
+select {
+    background: #1a1a2e;
+    color: var(--text-primary);
+    border: 1px solid var(--glass-border);
+    border-radius: 6px;
+    padding: 0.4rem 0.6rem;
+    font-family: 'Outfit', sans-serif;
+    font-size: 0.85rem;
+    cursor: pointer;
+    outline: none;
+    appearance: auto;
+}
+select:focus { border-color: var(--accent); }
+select option {
+    background: #1a1a2e;
+    color: var(--text-primary);
+    padding: 0.4rem;
+}
+
+
 /* Modals */
 .modal {
     display: none;

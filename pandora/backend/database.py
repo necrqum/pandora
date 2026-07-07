@@ -51,6 +51,7 @@ class File(Base):
     notes = Column(String, nullable=True) # Personal notes
     artist = Column(String, nullable=True) # Uploader / Creator
     source_url = Column(String, nullable=True) # Original URL
+    file_hash = Column(String, nullable=True, index=True) # SHA-256 hash for duplicate detection
     
     category = relationship("Category", back_populates="files")
     tags = relationship(
@@ -133,6 +134,12 @@ class DatabaseManager:
                 except OperationalError: pass
                 try:
                     conn.execute(text("ALTER TABLE files ADD COLUMN source_url TEXT"))
+                except OperationalError: pass
+                try:
+                    conn.execute(text("ALTER TABLE files ADD COLUMN file_hash TEXT"))
+                except OperationalError: pass
+                try:
+                    conn.execute(text("CREATE INDEX IF NOT EXISTS ix_files_file_hash ON files (file_hash)"))
                 except OperationalError: pass
         except OperationalError as exc:
             logger.error("Failed to initialize database schema: %s", exc)

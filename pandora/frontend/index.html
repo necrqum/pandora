@@ -185,6 +185,29 @@
                             </span>
                         </label>
                     </div>
+                    <div style="display: flex; align-items: center; justify-content: space-between; background: rgba(255,255,255,0.05); padding: 0.75rem 1rem; border-radius: 8px; margin-top: 0.75rem;">
+                        <div>
+                            <div style="font-weight: 500; margin-bottom: 0.25rem;">Duplicate File Handling</div>
+                            <div style="font-size: 0.8rem; opacity: 0.7;">What to do when you import a file that already exists in the vault.</div>
+                        </div>
+                        <select id="setting-duplicate-mode" style="background: var(--surface-glass); color: var(--text-primary); border: 1px solid var(--border-color); border-radius: 6px; padding: 0.4rem 0.6rem; font-size: 0.85rem; cursor: pointer;">
+                            <option value="skip">Skip (Ignore duplicate)</option>
+                            <option value="replace">Replace (Overwrite old entry)</option>
+                            <option value="allow">Allow (Import anyway)</option>
+                        </select>
+                    </div>
+                </div>
+
+                <div style="text-align: left; margin-bottom: 2rem;">
+                    <h3 style="font-size: 1rem; color: var(--text-secondary); margin-bottom: 0.5rem;">Duplicate Detection: Backfill Old Files</h3>
+                    <p style="font-size: 0.8rem; opacity: 0.7; margin-bottom: 0.75rem;">Files imported before this feature was added don't have a fingerprint yet. Run this once to scan them — after this, ALL files will be covered by duplicate detection.</p>
+                    <div id="backfill-progress-wrap" style="display: none; margin-bottom: 0.75rem;">
+                        <div style="font-size: 0.8rem; margin-bottom: 0.3rem;" id="backfill-status-text">Scanning...</div>
+                        <div style="background: rgba(255,255,255,0.1); border-radius: 4px; height: 6px; overflow: hidden;">
+                            <div id="backfill-bar" style="height: 100%; width: 0%; background: var(--primary); transition: width 0.4s;"></div>
+                        </div>
+                    </div>
+                    <button id="backfill-btn" class="btn btn-outline btn-small w-full">🔍 Scan & Fingerprint Existing Files</button>
                 </div>
 
                 <div style="text-align: left; margin-bottom: 2rem;">

@@ -6,6 +6,7 @@ import sys
 import secrets
 import json
 import traceback
+import hashlib
 from pathlib import Path
 
 try:
@@ -51,6 +52,14 @@ def get_vault_paths():
         "files": os.path.join(blob_dir, "files")
     }
 
+def compute_file_hash(path: str) -> str:
+    """Compute SHA-256 of a file in 4MB streaming chunks."""
+    h = hashlib.sha256()
+    with open(path, "rb") as f:
+        for chunk in iter(lambda: f.read(4 * 1024 * 1024), b""):
+            h.update(chunk)
+    return h.hexdigest()
+
 class PandoraImporter:
     def __init__(self, root):
         self.root = root
@@ -61,7 +70,8 @@ class PandoraImporter:
         self.db = None
         self.vault = None
         self.paths = get_vault_paths()
-        self.files_to_import = sys.argv[1:] if len(sys.argv) > 1 else []
+        self.files_to_import = []
+        self.cli_files = sys.argv[1:] if len(sys.argv) > 1 else []
         
         self.build_login_ui()
 
@@ -130,7 +140,7 @@ class PandoraImporter:
         
         list_scroll = ttk.Scrollbar(files_frame)
         list_scroll.pack(side='right', fill='y')
-        self.listbox = tk.Listbox(files_frame, selectmode=tk.EXTENDED, yscrollcommand=list_scroll.set)
+        self.listbox = tk.Listbox(files_frame, selectmode=tk.EXTENDED, yscrollcommand=list_scroll.set, exportselection=False)
         self.listbox.pack(fill='both', expand=True)
         list_scroll.config(command=self.listbox.yview)
         
@@ -138,15 +148,17 @@ class PandoraImporter:
         self.listbox.bind("<Control-a>", self.select_all_files)
         self.listbox.bind("<Delete>", self.remove_selected_files)
         self.listbox.bind("<BackSpace>", self.remove_selected_files)
+        self.listbox.bind("<<ListboxSelect>>", self.on_listbox_select)
         
         if DND_AVAILABLE:
             self.listbox.drop_target_register(DND_FILES)
             self.listbox.dnd_bind('<<Drop>>', self.on_drop_files)
             
         # Add any files passed from CLI (like Nemo actions)
-        if self.files_to_import:
-            for f in self.files_to_import:
-                self.listbox.insert(tk.END, f)
+        if hasattr(self, 'cli_files') and self.cli_files:
+            for f in self.cli_files:
+                self._add_file_or_folder(f)
+            self.cli_files = []
         
         # Settings Section
         options_frame = ttk.LabelFrame(self.main_frame, text="Import Settings", padding="10")
@@ -159,6 +171,8 @@ class PandoraImporter:
         self.category_var = tk.StringVar()
         self.category_combo = ttk.Combobox(cat_frame, textvariable=self.category_var)
         self.category_combo.pack(side='left', fill='x', expand=True, padx=5)
+        self.category_combo.bind("<<ComboboxSelected>>", self.on_category_changed)
+        self.category_combo.bind("<KeyRelease>", self.on_category_changed)
         
         # Tags
         tags_frame = ttk.Frame(options_frame)
@@ -170,9 +184,10 @@ class PandoraImporter:
         
         tag_scroll = ttk.Scrollbar(tags_list_frame)
         tag_scroll.pack(side='right', fill='y')
-        self.tags_listbox = tk.Listbox(tags_list_frame, selectmode=tk.MULTIPLE, height=4, yscrollcommand=tag_scroll.set)
+        self.tags_listbox = tk.Listbox(tags_list_frame, selectmode=tk.MULTIPLE, height=4, yscrollcommand=tag_scroll.set, exportselection=False)
         self.tags_listbox.pack(side='left', fill='both', expand=True)
         tag_scroll.config(command=self.tags_listbox.yview)
+        self.tags_listbox.bind("<<ListboxSelect>>", self.on_tags_changed)
         
         new_tag_frame = ttk.Frame(tags_frame)
         new_tag_frame.pack(side='left', anchor='n', padx=5)
@@ -182,6 +197,22 @@ class PandoraImporter:
         new_tag_entry.pack(fill='x')
         new_tag_entry.bind("<Return>", lambda e: self.add_new_tag())
         ttk.Button(new_tag_frame, text="Add", command=self.add_new_tag).pack(fill='x', pady=2)
+
+        # Duplicate Handling
+        dup_frame = ttk.Frame(options_frame)
+        dup_frame.pack(fill='x', pady=5)
+        ttk.Label(dup_frame, text="Duplicate Handling:").pack(side='left', padx=5)
+        self.duplicate_mode_var = tk.StringVar(value="skip")
+        dup_combo = ttk.Combobox(
+            dup_frame,
+            textvariable=self.duplicate_mode_var,
+            values=["skip", "replace", "allow"],
+            state="readonly",
+            width=12
+        )
+        dup_combo.pack(side='left', padx=5)
+        ttk.Label(dup_frame, text="(skip = ignore dupe, replace = overwrite old, allow = import anyway)",
+                  font=("Helvetica", 8), foreground="gray").pack(side='left', padx=5)
         
         # Start & Progress
         self.start_btn = ttk.Button(self.main_frame, text="START MASS IMPORT", command=self.start_import)
@@ -192,10 +223,24 @@ class PandoraImporter:
         self.progress.pack(fill='x', pady=5)
         
         self.status_var = tk.StringVar(value="Ready")
-        ttk.Label(self.main_frame, textvariable=self.status_var).pack()
-        
         self.load_categories()
         self.load_tags()
+        self.log("info", "Vault unlocked. Ready to import.")
+
+    def log(self, level: str, msg: str):
+        """Log to standard stdout/terminal."""
+        import datetime
+        ts = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        colors = {
+            "ok": "\033[92m",      # Green
+            "skip": "\033[93m",    # Yellow
+            "replace": "\033[95m", # Magenta
+            "err": "\033[91m",     # Red
+            "info": "\033[94m"     # Blue
+        }
+        reset = "\033[0m"
+        color = colors.get(level, "")
+        print(f"{color}[{ts}] [{level.upper()}] {msg}{reset}", flush=True)
 
     def load_categories(self):
         try:
@@ -225,6 +270,7 @@ class PandoraImporter:
             # Select it
             idx = self.tags_listbox.get(0, tk.END).index(new_tag)
             self.tags_listbox.selection_set(idx)
+            self.on_tags_changed()
             self.new_tag_var.set("")
 
     def select_all_files(self, event=None):
@@ -237,6 +283,7 @@ class PandoraImporter:
             self.listbox.selection_clear(0, tk.END)
         else:
             self.listbox.selection_set(0, tk.END)
+        self.on_listbox_select()
         return "break"
         
     def remove_selected_files(self, event=None):
@@ -252,18 +299,190 @@ class PandoraImporter:
         for f in files:
             self._add_file_or_folder(f)
 
+    def _create_import_item(self, path):
+        # Get UI settings for category/tags as defaults if set
+        ui_cat = self.category_var.get().strip()
+        if ui_cat:
+            cat = ui_cat
+        else:
+            filename = os.path.basename(path)
+            ext = filename.split('.')[-1].lower() if '.' in filename else ''
+            if ext in ['mp4', 'mov', 'avi', 'mkv', 'webm', 'flv', 'wmv']:
+                cat = "Video"
+            elif ext in ['jpg', 'jpeg', 'png', 'gif', 'webp']:
+                cat = "Image"
+            elif ext in ['pdf', 'txt', 'doc', 'docx']:
+                cat = "Document"
+            else:
+                cat = "Other"
+
+        selected_tag_indices = self.tags_listbox.curselection()
+        ui_tags = [self.tags_listbox.get(i) for i in selected_tag_indices]
+
+        return {
+            "path": path,
+            "category": cat,
+            "tags": list(ui_tags),
+            "status": "Checking...",
+            "is_duplicate": False
+        }
+
     def _add_file_or_folder(self, path):
         if os.path.isdir(path):
-            for root, _, files in os.walk(path):
+            for root, dirs, files in os.walk(path):
                 for file in files:
                     full_path = os.path.join(root, file)
-                    if full_path not in self.files_to_import:
-                        self.files_to_import.append(full_path)
-                        self.listbox.insert(tk.END, full_path)
+                    if not any(f["path"] == full_path for f in self.files_to_import):
+                        item = self._create_import_item(full_path)
+                        self.files_to_import.append(item)
+                        self._listbox_insert(item)
         else:
-            if path not in self.files_to_import:
-                self.files_to_import.append(path)
-                self.listbox.insert(tk.END, path)
+            if not any(f["path"] == path for f in self.files_to_import):
+                item = self._create_import_item(path)
+                self.files_to_import.append(item)
+                self._listbox_insert(item)
+        self._trigger_duplicate_checks()
+
+    def _listbox_insert(self, item):
+        idx = self.listbox.size()
+        self.listbox.insert(tk.END, "")
+        self._update_listbox_item_text(idx)
+
+    def _update_listbox_item_text(self, index):
+        if index >= len(self.files_to_import):
+            return
+        item = self.files_to_import[index]
+        status_str = f"[{item['status']}]" if item['status'] else ""
+        cat_str = f" [{item['category']}]" if item['category'] else ""
+        tags_str = f" #{' #'.join(item['tags'])}" if item['tags'] else ""
+        text = f"{status_str} {item['path']}{cat_str}{tags_str}"
+        
+        # We need to temporarily disable updates to prevent selection events from firing
+        was_selected = index in self.listbox.curselection()
+        self._updating_inputs = True
+        try:
+            self.listbox.delete(index)
+            self.listbox.insert(index, text)
+            if was_selected:
+                self.listbox.selection_set(index)
+        finally:
+            self._updating_inputs = False
+            
+        # Re-apply color styling based on status
+        if "DUPLICATE" in item['status'] or "SKIPPED" in item['status']:
+            self.listbox.itemconfig(index, {'bg': '#3a3000', 'fg': '#f9e2af'})
+        elif "OK" in item['status'] or "Complete" in item['status'] or "✓" in item['status']:
+            self.listbox.itemconfig(index, {'bg': '#002000', 'fg': '#a6e3a1'})
+        elif "FAILED" in item['status'] or "✗" in item['status']:
+            self.listbox.itemconfig(index, {'bg': '#200000', 'fg': '#f38ba8'})
+        else:
+            self.listbox.itemconfig(index, {'bg': '#1a1a1a', 'fg': '#cdd6f4'})
+
+    def _trigger_duplicate_checks(self):
+        if not hasattr(self, "_db_check_thread") or not self._db_check_thread.is_alive():
+            self._db_check_thread = threading.Thread(target=self._run_duplicate_checks, daemon=True)
+            self._db_check_thread.start()
+
+    def _run_duplicate_checks(self):
+        while True:
+            target_idx = None
+            for idx, item in enumerate(self.files_to_import):
+                if item["status"] == "Checking...":
+                    target_idx = idx
+                    break
+            
+            if target_idx is None:
+                break
+                
+            item = self.files_to_import[target_idx]
+            filepath = item["path"]
+            try:
+                file_hash = compute_file_hash(filepath)
+                with self.db.session_scope() as session:
+                    existing = session.query(DBFile).filter(DBFile.file_hash == file_hash).first()
+                    is_dup = existing is not None
+                
+                if is_dup:
+                    item["status"] = "DUPLICATE"
+                    item["is_duplicate"] = True
+                else:
+                    item["status"] = "Ready"
+                    item["is_duplicate"] = False
+            except Exception as e:
+                item["status"] = "Error"
+                print(f"Error checking duplicate for {filepath}: {e}")
+                
+            self.root.after(0, lambda idx=target_idx: self._update_listbox_item_text(idx))
+
+    def on_listbox_select(self, event=None):
+        if getattr(self, "_updating_inputs", False):
+            return
+            
+        selected_indices = self.listbox.curselection()
+        if not selected_indices:
+            return
+            
+        self._updating_inputs = True
+        try:
+            # If single select:
+            if len(selected_indices) == 1:
+                item = self.files_to_import[selected_indices[0]]
+                self.category_var.set(item["category"])
+                # Select tags
+                self.tags_listbox.selection_clear(0, tk.END)
+                all_tags = self.tags_listbox.get(0, tk.END)
+                for t in item["tags"]:
+                    if t in all_tags:
+                        self.tags_listbox.selection_set(all_tags.index(t))
+            else:
+                # If multi select, find common categories and common tags
+                cats = {self.files_to_import[idx]["category"] for idx in selected_indices}
+                if len(cats) == 1:
+                    self.category_var.set(list(cats)[0])
+                else:
+                    self.category_var.set("")
+                    
+                common_tags = None
+                for idx in selected_indices:
+                    file_tags = set(self.files_to_import[idx]["tags"])
+                    if common_tags is None:
+                        common_tags = file_tags
+                    else:
+                        common_tags = common_tags.intersection(file_tags)
+                
+                self.tags_listbox.selection_clear(0, tk.END)
+                if common_tags:
+                    all_tags = self.tags_listbox.get(0, tk.END)
+                    for t in common_tags:
+                        if t in all_tags:
+                            self.tags_listbox.selection_set(all_tags.index(t))
+        finally:
+            self._updating_inputs = False
+
+    def on_category_changed(self, event=None):
+        if getattr(self, "_updating_inputs", False):
+            return
+        selected_indices = self.listbox.curselection()
+        if not selected_indices:
+            return
+        cat = self.category_var.get().strip()
+        for idx in selected_indices:
+            self.files_to_import[idx]["category"] = cat
+            self._update_listbox_item_text(idx)
+
+    def on_tags_changed(self, event=None):
+        if getattr(self, "_updating_inputs", False):
+            return
+        selected_indices = self.listbox.curselection()
+        if not selected_indices:
+            return
+            
+        selected_tag_indices = self.tags_listbox.curselection()
+        tags = [self.tags_listbox.get(i) for i in selected_tag_indices]
+        
+        for idx in selected_indices:
+            self.files_to_import[idx]["tags"] = list(tags)
+            self._update_listbox_item_text(idx)
 
     def select_files(self):
         try:
@@ -310,27 +529,53 @@ class PandoraImporter:
         self.start_btn.config(state='disabled')
         self.category_combo.config(state='disabled')
         
-        cat_name = self.category_var.get().strip()
-        
-        # Gather selected tags
-        selected_indices = self.tags_listbox.curselection()
-        tags = [self.tags_listbox.get(i) for i in selected_indices]
-        
-        threading.Thread(target=self._import_thread, args=(cat_name, tags), daemon=True).start()
+        threading.Thread(target=self._import_thread, daemon=True).start()
 
-    def _import_thread(self, custom_cat_name, tags):
+    def _import_thread(self):
         total = len(self.files_to_import)
         success = 0
         failed = 0
+        skipped = 0
         
-        for i, filepath in enumerate(self.files_to_import):
+        for i, item in enumerate(self.files_to_import):
+            filepath = item["path"]
             filename = os.path.basename(filepath)
             self.status_var.set(f"[{i+1}/{total}] Processing: {filename}...")
             
             try:
                 ext = filename.split('.')[-1] if '.' in filename else 'tmp'
                 ext_lower = ext.lower()
-                
+
+                # --- Duplicate detection ---
+                file_hash = compute_file_hash(filepath)
+                self.root.after(0, lambda msg=f"Hashing: {filename}": self.log("info", msg))
+                with self.db.session_scope() as session:
+                    existing = session.query(DBFile).filter(DBFile.file_hash == file_hash).first()
+                    existing_id = existing.id if existing else None
+
+                if existing_id:
+                    mode = self.duplicate_mode_var.get()
+                    if mode == "skip":
+                        skipped += 1
+                        self.root.after(0, lambda idx=i: (
+                            self.listbox.delete(idx),
+                            self.listbox.insert(idx, f"[SKIPPED – EXISTS] {self.files_to_import[idx]['path']}"),
+                            self.listbox.itemconfig(idx, {'bg': '#3a3000', 'fg': '#f9e2af'}),
+                            self.log("skip", f"SKIPPED (duplicate): {filename}")
+                        ))
+                        self.progress_var.set((i + 1) / total * 100)
+                        continue
+                    elif mode == "replace":
+                        self.vault.delete_file(existing_id)
+                        with self.db.session_scope() as session:
+                            old = session.query(DBFile).filter(DBFile.id == existing_id).first()
+                            if old:
+                                session.delete(old)
+                        self.root.after(0, lambda fn=filename: self.log("replace", f"REPLACING existing: {fn}"))
+                    else:
+                        self.root.after(0, lambda fn=filename: self.log("info", f"ALLOWING duplicate: {fn}"))
+                    # mode == "allow" or "replace": fall through and import
+
                 # Thumbnail extraction
                 thumbnail, duration = generate_thumbnail_from_file(filepath, filename)
                 creation_date = get_file_creation_date(filepath)
@@ -346,7 +591,7 @@ class PandoraImporter:
                 file_id, total_size = self.vault.store_file(file_iterator())
                 
                 # Database Insert
-                final_cat_name = custom_cat_name
+                final_cat_name = item["category"]
                 if not final_cat_name:
                     if ext_lower in ['mp4', 'mov', 'avi', 'mkv', 'webm', 'flv', 'wmv']:
                         final_cat_name = "Video"
@@ -366,7 +611,7 @@ class PandoraImporter:
                     final_category_id = category.id
                     
                     tag_objs = []
-                    for tname in tags:
+                    for tname in item["tags"]:
                         if not tname: continue
                         tag = session.query(DBTag).filter(DBTag.name == tname).first()
                         if not tag:
@@ -382,7 +627,8 @@ class PandoraImporter:
                         duration=duration,
                         thumbnail_data=thumbnail,
                         category_id=final_category_id,
-                        metadata_created_at=creation_date
+                        metadata_created_at=creation_date,
+                        file_hash=file_hash
                     )
                     
                     if tag_objs:
@@ -390,16 +636,30 @@ class PandoraImporter:
                     session.add(db_file)
                 
                 success += 1
-                self.root.after(0, lambda idx=i: self.listbox.itemconfig(idx, {'bg': '#d4edda'}))
+                tag_names = [t.name for t in tag_objs]
+                cat_label = f"[{final_cat_name}]" if final_cat_name else ""
+                tag_label = f" #{' #'.join(tag_names)}" if tag_names else ""
+                self.root.after(0, lambda idx=i, fp=filepath, cl=cat_label, tl=tag_label: (
+                    self.listbox.delete(idx),
+                    self.listbox.insert(idx, f"✓ {fp}  {cl}{tl}"),
+                    self.listbox.itemconfig(idx, {'bg': '#002000', 'fg': '#a6e3a1'})
+                ))
+                self.root.after(0, lambda fn=filename, cl=cat_label, tl=tag_label: self.log("ok", f"OK: {fn}  {cl}{tl}"))
                 
             except Exception as e:
                 failed += 1
                 traceback.print_exc()
-                self.root.after(0, lambda idx=i: self.listbox.itemconfig(idx, {'bg': '#f8d7da'}))
+                err_msg = str(e)
+                self.root.after(0, lambda idx=i, fp=filepath: (
+                    self.listbox.delete(idx),
+                    self.listbox.insert(idx, f"✗ {fp}"),
+                    self.listbox.itemconfig(idx, {'bg': '#200000', 'fg': '#f38ba8'})
+                ))
+                self.root.after(0, lambda fn=filename, em=err_msg: self.log("err", f"FAILED: {fn} — {em}"))
                 
             self.progress_var.set((i+1) / total * 100)
             
-        self.status_var.set(f"Completed! {success} added, {failed} failed.")
+        self.status_var.set(f"Completed! {success} added, {skipped} skipped (duplicate), {failed} failed.")
         self.root.after(0, lambda: self.start_btn.config(state='normal'))
         self.root.after(0, lambda: self.category_combo.config(state='normal'))
         
