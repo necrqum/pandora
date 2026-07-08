@@ -634,9 +634,10 @@ class PandoraImporter:
                     if tag_objs:
                         db_file.tags = tag_objs
                     session.add(db_file)
+                    # Capture tag names INSIDE the session while objects are still attached
+                    tag_names = [t.name for t in tag_objs]
                 
                 success += 1
-                tag_names = [t.name for t in tag_objs]
                 cat_label = f"[{final_cat_name}]" if final_cat_name else ""
                 tag_label = f" #{' #'.join(tag_names)}" if tag_names else ""
                 self.root.after(0, lambda idx=i, fp=filepath, cl=cat_label, tl=tag_label: (
