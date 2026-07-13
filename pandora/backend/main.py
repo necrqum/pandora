@@ -1112,6 +1112,81 @@ def list_files(
             "per_page": per_page
         }
 
+@app.get("/api/files/ids", dependencies=[Depends(require_unlocked)])
+def list_file_ids(
+    category_id: Optional[int] = None,
+    favorite: Optional[bool] = None,
+    q: Optional[str] = None,
+):
+    """Return all file IDs matching the current filter, with no pagination.
+    Used by the frontend 'Select All (Global)' button."""
+    from .database import File as DBFile, Tag as DBTag, Category as DBCategory
+    with state.db.session_scope() as session:
+        query = session.query(DBFile.id)
+
+        if category_id is not None:
+            query = query.filter(DBFile.category_id == category_id)
+
+        if favorite is True:
+            query = query.filter(DBFile.is_favorite == 1)
+
+        if q:
+            criteria = SearchParser.parse(q)
+
+            def apply_filter(q_obj, field_attr, terms, exclude=False):
+                for term in terms:
+                    if exclude:
+                        q_obj = q_obj.filter(~field_attr.ilike(f"%{term}%"))
+                    else:
+                        q_obj = q_obj.filter(field_attr.ilike(f"%{term}%"))
+                return q_obj
+
+            for term in criteria['any']['include']:
+                if term.lower() == "favorite:true":
+                    query = query.filter(DBFile.is_favorite == 1)
+                elif term.lower() == "favorite:false":
+                    query = query.filter(DBFile.is_favorite == 0)
+
+            query = apply_filter(query, DBFile.filename, criteria['name']['include'])
+            query = apply_filter(query, DBFile.filename, criteria['name']['exclude'], exclude=True)
+
+            if criteria['cat']['include'] or criteria['cat']['exclude']:
+                query = query.join(DBCategory, DBFile.category_id == DBCategory.id)
+                query = apply_filter(query, DBCategory.name, criteria['cat']['include'])
+                query = apply_filter(query, DBCategory.name, criteria['cat']['exclude'], exclude=True)
+
+            if criteria['tag']['include'] or criteria['tag']['exclude']:
+                for term in criteria['tag']['include']:
+                    query = query.filter(DBFile.tags.any(DBTag.name.ilike(f"%{term}%")))
+                for term in criteria['tag']['exclude']:
+                    query = query.filter(~DBFile.tags.any(DBTag.name.ilike(f"%{term}%")))
+
+            query = apply_filter(query, DBFile.artist, criteria['artist']['include'])
+            query = apply_filter(query, DBFile.artist, criteria['artist']['exclude'], exclude=True)
+            query = apply_filter(query, DBFile.source_url, criteria['site']['include'])
+            query = apply_filter(query, DBFile.source_url, criteria['site']['exclude'], exclude=True)
+
+            for term in criteria['any']['include']:
+                query = query.filter(
+                    or_(
+                        DBFile.filename.ilike(f"%{term}%"),
+                        DBFile.tags.any(DBTag.name.ilike(f"%{term}%")),
+                        DBFile.artist.ilike(f"%{term}%"),
+                        DBFile.source_url.ilike(f"%{term}%")
+                    )
+                )
+            for term in criteria['any']['exclude']:
+                query = query.filter(
+                    ~or_(
+                        DBFile.filename.ilike(f"%{term}%"),
+                        DBFile.tags.any(DBTag.name.ilike(f"%{term}%"))
+                    )
+                )
+
+        ids = [row[0] for row in query.all()]
+        return {"ids": ids, "total": len(ids)}
+
+
 @app.post("/api/files/{file_id}/tags", dependencies=[Depends(require_unlocked)])
 def update_file_tags(file_id: str, req: UpdateTagsRequest):
     from .database import Tag as DBTag, file_tag_association

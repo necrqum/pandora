@@ -171,6 +171,7 @@ const bulkDeleteBtn = document.getElementById('bulk-delete-btn');
 const bulkScrapeBtn = document.getElementById('bulk-scrape-btn');
 const clearSelectionBtn = document.getElementById('clear-selection-btn');
 const selectAllBtn = document.getElementById('select-all-btn');
+const selectAllGlobalBtn = document.getElementById('select-all-global-btn');
 
 const renameModal = document.getElementById('rename-modal');
 const closeRenameBtn = document.getElementById('close-rename');
@@ -795,6 +796,54 @@ function renderPagination(total, perPage) {
         btn.onclick = () => { currentPage++; loadFiles(); window.scrollTo(0,0); };
         paginationControls.appendChild(btn);
     }
+    
+    // Jump to page feature
+    const jumpContainer = document.createElement('div');
+    jumpContainer.style.display = 'flex';
+    jumpContainer.style.alignItems = 'center';
+    jumpContainer.style.gap = '0.5rem';
+    jumpContainer.style.marginLeft = '1rem';
+    
+    const jumpLabel = document.createElement('span');
+    jumpLabel.textContent = `of ${totalPages}`;
+    jumpLabel.style.fontSize = '0.9rem';
+    jumpLabel.style.color = 'var(--text-muted)';
+    
+    const jumpInput = document.createElement('input');
+    jumpInput.type = 'number';
+    jumpInput.min = 1;
+    jumpInput.max = totalPages;
+    jumpInput.value = currentPage;
+    jumpInput.className = 'search-input';
+    jumpInput.style.width = '60px';
+    jumpInput.style.padding = '4px 8px';
+    jumpInput.style.marginBottom = '0';
+    jumpInput.style.textAlign = 'center';
+    
+    const jumpBtn = document.createElement('button');
+    jumpBtn.className = 'btn btn-outline btn-small';
+    jumpBtn.textContent = 'Go';
+    
+    const doJump = () => {
+        let target = parseInt(jumpInput.value);
+        if (isNaN(target)) return;
+        target = Math.max(1, Math.min(totalPages, target));
+        if (target !== currentPage) {
+            currentPage = target;
+            loadFiles();
+            window.scrollTo(0,0);
+        }
+    };
+    
+    jumpBtn.onclick = doJump;
+    jumpInput.addEventListener('keypress', (e) => {
+        if (e.key === 'Enter') doJump();
+    });
+    
+    jumpContainer.appendChild(jumpInput);
+    jumpContainer.appendChild(jumpLabel);
+    jumpContainer.appendChild(jumpBtn);
+    paginationControls.appendChild(jumpContainer);
 }
 
 function toggleSelection(id) {
@@ -846,6 +895,56 @@ selectAllBtn.onclick = () => {
     
     updateSelectionUI();
 };
+
+selectAllGlobalBtn.onclick = async () => {
+    selectAllGlobalBtn.disabled = true;
+    selectAllGlobalBtn.textContent = 'Loading...';
+    try {
+        let url = '/api/files/ids?';
+        if (currentCategoryId !== 'all' && currentCategoryId !== 'uncategorized' && currentCategoryId !== 'favorites') {
+            url += `category_id=${currentCategoryId}&`;
+        }
+        if (currentCategoryId === 'favorites') {
+            url += `favorite=true&`;
+        }
+        let q = searchInput.value.trim();
+        if (currentTagFilter) {
+            q = q ? `${q} tag:${currentTagFilter}` : `tag:${currentTagFilter}`;
+        }
+        if (q) {
+            url += `q=${encodeURIComponent(q)}&`;
+        }
+
+        const res = await fetch(url);
+        if (!res.ok) throw new Error('Failed to fetch IDs');
+        const data = await res.json();
+        
+        if (data.ids.length === 0) return;
+        
+        let allSelected = true;
+        for (const id of data.ids) {
+            if (!selectedFileIds.has(id)) {
+                allSelected = false;
+                break;
+            }
+        }
+
+        if (allSelected) {
+            data.ids.forEach(id => selectedFileIds.delete(id));
+        } else {
+            data.ids.forEach(id => selectedFileIds.add(id));
+        }
+
+        updateSelectionUI();
+    } catch (err) {
+        console.error(err);
+        alert('Failed to select all files globally.');
+    } finally {
+        selectAllGlobalBtn.disabled = false;
+        selectAllGlobalBtn.textContent = 'Select All (Global)';
+    }
+};
+
 
 // --- Batch Actions ---
 bulkTagBtn.onclick = () => {

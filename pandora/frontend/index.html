@@ -109,7 +109,7 @@
 
             <main class="vault-main">
                 <div class="gallery-header" style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 1rem;">
-                    <div style="display: flex; align-items: center; gap: 1rem;">
+                    <div style="display: flex; align-items: center; gap: 1rem; flex-wrap: wrap; flex: 1;">
                         <h2 id="current-category-title">Vault Contents</h2>
                         <span id="search-result-count" style="font-size: 0.85rem; opacity: 0.6; margin-top: 0.3rem;"></span>
                         <div class="view-switcher" style="display: flex; background: rgba(255,255,255,0.05); border-radius: 8px; padding: 2px;">
@@ -126,10 +126,11 @@
                             <option value="size:desc">Size (Large First)</option>
                             <option value="duration:desc">Duration (Long First)</option>
                         </select>
-                        <button id="select-all-btn" class="btn btn-outline btn-xs" style="height: 100%;" title="Select all files on this page">Select All</button>
+                        <button id="select-all-btn" class="btn btn-outline btn-xs" style="height: 100%;" title="Select all files on this page">Select All (Page)</button>
+                        <button id="select-all-global-btn" class="btn btn-outline btn-xs" style="height: 100%;" title="Select all files matching the current filter across all pages">Select All (Global)</button>
                     </div>
-                    <div class="search-container">
-                        <input type="text" id="search-input" placeholder="Search (e.g. tag:funny artist:Uploader site:Youtube)..." class="search-input" />
+                    <div class="search-container" style="flex: 1; min-width: 250px;">
+                        <input type="text" id="search-input" placeholder="Search (e.g. tag:funny artist:Uploader site:Youtube)..." class="search-input" style="width: 100%;" />
                     </div>
                 </div>
                 <div id="gallery-grid" class="grid">
@@ -138,7 +139,7 @@
                 <div id="folder-explorer" class="folder-explorer" style="display: none; padding: 1rem;">
                     <!-- Hierarchy will be injected here -->
                 </div>
-                <div id="pagination-controls" class="pagination" style="display: flex; justify-content: center; gap: 0.5rem; padding: 2rem;">
+                <div id="pagination-controls" class="pagination" style="display: flex; justify-content: center; align-items: center; flex-wrap: wrap; gap: 0.5rem; padding: 2rem;">
                     <!-- Pagination buttons will be injected here -->
                 </div>
             </main>
