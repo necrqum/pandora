@@ -765,8 +765,8 @@ function renderPagination(total, perPage) {
     const totalPages = Math.ceil(total / perPage);
     if (totalPages <= 1) return;
 
-    const maxButtons = 5;
-    let startPage = Math.max(1, currentPage - 2);
+    const maxButtons = window.innerWidth < 600 ? 3 : 5;
+    let startPage = Math.max(1, currentPage - Math.floor(maxButtons / 2));
     let endPage = Math.min(totalPages, startPage + maxButtons - 1);
     
     if (endPage - startPage < maxButtons - 1) {
@@ -798,7 +798,8 @@ function renderPagination(total, perPage) {
     }
     
     // Jump to page feature
-    const jumpContainer = document.createElement('div');
+    const jumpContainer = document.createElement('form');
+    jumpContainer.className = 'jump-form';
     jumpContainer.style.display = 'flex';
     jumpContainer.style.alignItems = 'center';
     jumpContainer.style.gap = '0.5rem';
@@ -821,6 +822,7 @@ function renderPagination(total, perPage) {
     jumpInput.style.textAlign = 'center';
     
     const jumpBtn = document.createElement('button');
+    jumpBtn.type = 'submit';
     jumpBtn.className = 'btn btn-outline btn-small';
     jumpBtn.textContent = 'Go';
     
@@ -835,10 +837,10 @@ function renderPagination(total, perPage) {
         }
     };
     
-    jumpBtn.onclick = doJump;
-    jumpInput.addEventListener('keypress', (e) => {
-        if (e.key === 'Enter') doJump();
-    });
+    jumpContainer.onsubmit = (e) => {
+        e.preventDefault();
+        doJump();
+    };
     
     jumpContainer.appendChild(jumpInput);
     jumpContainer.appendChild(jumpLabel);

@@ -1,7 +1,7 @@
 import signal
 import sys
 import socket
-from sqlalchemy import or_
+from sqlalchemy import or_, func
 from fastapi import FastAPI, HTTPException, UploadFile, Depends, Request, Response, Cookie, Form, BackgroundTasks
 from fastapi.responses import StreamingResponse, HTMLResponse
 from fastapi.staticfiles import StaticFiles
@@ -1078,6 +1078,8 @@ def list_files(
                 query = query.order_by(DBFile.metadata_created_at.asc().nulls_last())
             else:
                 query = query.order_by(DBFile.metadata_created_at.desc().nulls_last())
+        elif sort_by == "random":
+            query = query.order_by(func.random())
         else: # Default: date added
             query = query.order_by(DBFile.added_at.asc() if sort_dir == "asc" else DBFile.added_at.desc())
 

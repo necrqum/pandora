@@ -114,3 +114,25 @@ def test_vault_range_streaming():
         start, end = total_size - 500, total_size - 1
         reconstructed = b"".join(vault.stream_file_range(file_id, start, end))
         assert reconstructed == full_data[start:end+1]
+
+def test_list_files_random_sort():
+    from pandora.backend.database import DatabaseManager, File as DBFile
+    from pandora.backend.main import state, list_files
+    import uuid
+    
+    with tempfile.TemporaryDirectory() as tmpdir:
+        db_path = os.path.join(tmpdir, "test_sort.db")
+        db = DatabaseManager(db_path, "pass123")
+        db.init_db()
+        state.db = db
+        
+        # Insert test files
+        with db.session_scope() as session:
+            for i in range(10):
+                f = DBFile(id=str(uuid.uuid4()), filename=f"video_{i}.mp4", size=100*i)
+                session.add(f)
+        
+        res = list_files(sort_by="random")
+        assert "results" in res
+        assert len(res["results"]) == 10
+        assert res["total"] == 10

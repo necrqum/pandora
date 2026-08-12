@@ -5,6 +5,27 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+- **Random Shuffle Sorting**: Added a "Random Shuffle" option (`sort_by=random`) to the vault gallery sort dropdown.
+- **Move vs. Copy Import Mode** (planned): Concept documented in `PROJECT_GOALS.md` Phase 3 for automatic deletion of source files after vault import.
+- **Browser Addon URL Capture** (planned): Concept documented in `PROJECT_GOALS.md` Phase 4 for capturing URLs from a browser extension into Pandora's fetching list.
+- New unit test `test_list_files_random_sort` to verify backend random sorting functionality.
+
+### Fixed
+- **Page Jump on Mobile**: Fixed the "Can't jump to a side" issue on mobile devices. The jump-to-page input is now wrapped in a `<form>` element so that the 'Go' / Enter / Next button on mobile virtual keyboards correctly triggers the page navigation via `onsubmit`.
+- **Mobile UI Responsiveness**: Overhauled the mobile UI for vault browsing:
+  - Gallery header now stacks controls vertically on small screens, with the search bar prioritized at the top.
+  - Pagination controls reduce to a maximum of 3 page buttons on screens under 600px.
+  - Pagination jump-form is now centered and full-width on mobile via media query.
+  - Multi-select action bar buttons stack and wrap responsively for easier tapping.
+  - Replaced inline styles in the gallery header with semantic CSS classes (`gallery-controls-bar`, `gallery-title-row`, `gallery-actions-row`, `select-buttons-container`) for better maintainability.
+
+### Changed
+- Pagination button count is now dynamic (3 on mobile, 5 on desktop) based on `window.innerWidth`.
+- Bumped static assets version from `?v=5` to `?v=6` to invalidate browser cache for CSS/JS changes.
+
 ## [0.2.0] - 2026-06-13
 
 ### Added
